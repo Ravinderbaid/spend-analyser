@@ -956,8 +956,13 @@ async function refreshAll(){
 }
 
 const BUDGET_KEY = 'ledger:budgets';
-const SPEND_CATEGORIES = CATEGORIES.filter(c => !['Salary / Income', 'Dividend', 'Self Transfer', 'Family Transfer', 'Cashback'].includes(c));
 const INCOME_CATEGORIES = ['Salary / Income', 'Dividend', 'Cashback'];
+// Shown in the transactions table like any other category, but excluded from
+// every calculation (Income, Spend, Net, charts, budget) — money moving to
+// your own or family's accounts isn't real spend or income. Customize this
+// list to match your own accounting preference.
+const IGNORED_CATEGORIES = ['Self Transfer', 'Family Transfer'];
+const SPEND_CATEGORIES = CATEGORIES.filter(c => !INCOME_CATEGORIES.includes(c) && !IGNORED_CATEGORIES.includes(c));
 
 function getBudgets(){
   try{ return JSON.parse(localStorage.getItem(BUDGET_KEY) || '{}'); }catch(e){ return {}; }

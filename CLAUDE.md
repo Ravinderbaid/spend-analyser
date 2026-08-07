@@ -23,9 +23,45 @@ the same wifi reach it, change `host="127.0.0.1"` to `host="0.0.0.0"` at the
 bottom of `server.py` — there is no authentication anywhere in this app, so
 only do this on a trusted home network, and switch it back when done.
 
-See README.md for full usage details (file purposes, upload flow, PDF format
-detection, excluded transactions, category list, email fetcher, known
-limitations).
+See README.md for usage/setup (aimed at day-1 users). This file has
+implementation detail aimed at whoever's extending the code.
+
+## Files
+
+`server.py` Flask backend + all parsers · `spend_analyser.html` dashboard UI
+(vanilla JS, Chart.js, PapaParse) · `transactions.csv` the ledger (`id, date,
+description, amount, account, category`; amount signed, negative=spend) ·
+`category_rules.json` / `RULES` in the HTML: keyword→category, kept in sync
+manually · `fetch_statements.py` standalone IMAP fetcher, never imported by
+`server.py` · `mail_config.json` Gmail creds (git-ignored) ·
+`statement_subjects.json` email-subject→account-label map ·
+`incoming_statements/` staged attachments + `manifest.json` ·
+`.fetched_state.json` IMAP UID dedup only, no transaction data ·
+`com.spendanalyser.fetchstatements.plist.example` launchd template.
+
+## PDF layout dispatch
+
+Each checked via an exact header-phrase substring on the extracted text (see
+rule below for why), in this order in `read_pdf_rows()`:
+
+1. `"date mode particulars"` → ICICI savings — narration wraps before/after
+   the date/amount line (`parse_icici_statement_lines`).
+2. `"date serno"` → ICICI credit card (e.g. Sapphiro) — single line/txn,
+   reward-points column, trailing `CR` = credit
+   (`parse_icici_card_statement_lines`).
+3. `"transaction details"` + `"withdrawal deposits balance"` → Axis
+   savings/salary — 2 trailing numbers (amount + running balance), direction
+   inferred from balance movement (`parse_axis_savings_statement_lines`).
+4. `"narration withdrawals deposits"` → bank-statement 3-column layout
+   (withdrawal/deposit/balance) (`parse_bank_statement_lines`).
+5. `"merchant category"` → Axis-style card (Magnus/Horizon) — trailing
+   `Dr`/`Cr` suffix (`parse_axis_statement_lines`).
+6. Else → generic fallback, single amount column, leading `+`/blank sign
+   (`parse_statement_lines`).
+
+`extract_pdf_lines()` does the raw pikepdf-decrypt + pdfplumber-extract +
+`(cid:9)`-tab-glyph stripping shared by all of the above; `read_pdf_rows()`
+just adds the dispatch on top.
 
 ## Rules for working in this repo
 
