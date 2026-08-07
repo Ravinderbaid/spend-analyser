@@ -49,17 +49,27 @@ the terminal stops the server; run step 3 again any time to bring it back.
 
 ## The three tabs
 
-- **Dashboard** — monthly summary (income/spend/net/top category), the full
-  transactions table (searchable, filterable by category/account/Savings-vs-
-  Credit-Card), a budget planner, a backup button, and spend charts. Pick a
-  category in the filter to see its monthly trend and which account it went
-  through.
-- **Pending Statements** — upload a file yourself, or (if you set up the
-  email auto-fetch) review statements it found automatically before they're
-  added to the ledger.
-- **Statement Formats** — test whether a file parses correctly *before*
-  committing to it. If it can't be read, it hands you the raw text and a
-  button to copy it into a Claude Code chat to get support added.
+*(Screenshots below use made-up sample data, not a real ledger.)*
+
+**Dashboard** — monthly summary (income/spend/net/top category), the full
+transactions table (searchable, filterable by category/account/Savings-vs-
+Credit-Card), a budget planner, a backup button, and spend charts. Pick a
+category in the filter to see its monthly trend and which account it went
+through.
+
+![Dashboard tab](docs/screenshots/dashboard.png)
+
+**Pending Statements** — upload a file yourself, or (if you set up the email
+auto-fetch) review statements it found automatically before they're added to
+the ledger.
+
+![Pending Statements tab](docs/screenshots/pending-statements.png)
+
+**Statement Formats** — test whether a file parses correctly *before*
+committing to it. If it can't be read, it hands you the raw text and a
+button to copy it into a Claude Code chat to get support added.
+
+![Statement Formats tab](docs/screenshots/statement-formats.png)
 
 ## Categories
 
