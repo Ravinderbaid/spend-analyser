@@ -1,0 +1,26 @@
+# Secrets / credentials
+mail_config.json
+
+# Real financial data — the whole point of this repo is code, not the ledger
+transactions.csv
+transactions.gsheet
+
+# Personal to this user's accounts — real names as category keywords, real
+# bank/email subject lines — not generic app config
+category_rules.json
+statement_subjects.json
+
+# Runtime state / generated, not source
+.fetched_state.json
+incoming_statements/
+fetch_statements.log
+
+# Python virtualenv — never commit, huge and machine-specific
+.venv/
+
+# Google Drive sync artifacts (this folder appears to be inside a synced Drive folder)
+.tmp.drivedownload/
+.tmp.driveupload/
+
+# OS cruft
+.DS_Store
