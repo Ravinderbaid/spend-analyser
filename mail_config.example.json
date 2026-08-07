@@ -1,0 +1,8 @@
+{
+  "email": "you@gmail.com",
+  "app_password": "your 16-character app password (no spaces)",
+  "imap_host": "imap.gmail.com",
+  "imap_port": 993,
+  "mailbox": "INBOX",
+  "search_window_days": 1
+}

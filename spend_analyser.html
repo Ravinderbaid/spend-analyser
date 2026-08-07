@@ -1,0 +1,1227 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Ledger — Spend Analyser</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#F6F3EC;
+    --paper-raised:#FFFFFF;
+    --ink:#1C2420;
+    --ink-soft:#5B6560;
+    --rule:#D9D2C0;
+    --ledger:#2F5233;
+    --ledger-soft:#EAF0E7;
+    --gold:#B8873F;
+    --red:#A8432B;
+    --red-soft:#F5E7E2;
+    --radius: 3px;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; background:var(--paper); color:var(--ink);
+    font-family:'Inter',sans-serif; font-size:14px; line-height:1.5;
+  }
+  .wrap{max-width:1320px; margin:0 auto; padding:28px 20px 60px;}
+
+  /* Header / signature element */
+  .masthead{
+    display:flex; justify-content:space-between; align-items:flex-end;
+    border-bottom:2px solid var(--ink); padding-bottom:14px; margin-bottom:6px;
+  }
+  .masthead h1{
+    font-family:'Fraunces',serif; font-weight:600; font-size:30px; margin:0;
+    letter-spacing:-0.01em;
+  }
+  .masthead .tagline{color:var(--ink-soft); font-size:12px; margin-top:2px;}
+  .month-nav{display:flex; align-items:center; gap:10px; font-family:'IBM Plex Mono',monospace;}
+  .month-nav button{
+    background:none; border:1px solid var(--ink); color:var(--ink); width:26px; height:26px;
+    cursor:pointer; border-radius:var(--radius); font-family:inherit; font-size:14px;
+  }
+  .month-nav button:hover{background:var(--ink); color:var(--paper);}
+  .month-label{font-size:15px; font-weight:600; min-width:120px; text-align:center;}
+  .ledger-no{font-size:10px; color:var(--ink-soft); text-align:right; margin-bottom:24px; letter-spacing:0.04em; text-transform:uppercase;}
+  .header-status{display:flex; justify-content:space-between; align-items:center; gap:14px; flex-wrap:wrap; margin-bottom:24px;}
+  .header-status .left{display:flex; align-items:center; gap:14px; flex-wrap:wrap;}
+  .header-status .caption{font-size:10px; color:var(--ink-soft); text-transform:uppercase; letter-spacing:0.04em; font-family:'IBM Plex Mono',monospace;}
+
+  /* Summary strip */
+  .summary{display:grid; grid-template-columns:repeat(4,1fr); gap:1px; background:var(--rule); border:1px solid var(--rule); margin-bottom:28px;}
+  .summary .cell{background:var(--paper-raised); padding:14px 16px;}
+  .summary .cell .label{font-size:10px; text-transform:uppercase; letter-spacing:0.06em; color:var(--ink-soft); margin-bottom:6px;}
+  .summary .cell .value{font-family:'IBM Plex Mono',monospace; font-size:20px; font-weight:600;}
+  .summary .cell.neg .value{color:var(--red);}
+  .summary .cell.pos .value{color:var(--ledger);}
+
+  section{margin-bottom:32px;}
+  .section-head{display:flex; align-items:baseline; justify-content:space-between; flex-wrap:wrap; gap:8px 0; margin-bottom:12px;}
+  .section-head h2{font-family:'Fraunces',serif; font-size:16px; font-weight:600; margin:0;}
+  .eyebrow{font-size:10px; text-transform:uppercase; letter-spacing:0.08em; color:var(--ink-soft);}
+
+  /* Import panel */
+  .panel{background:var(--paper-raised); border:1px solid var(--rule); border-radius:var(--radius); padding:18px;}
+  textarea{
+    width:100%; min-height:90px; font-family:'IBM Plex Mono',monospace; font-size:12px;
+    border:1px solid var(--rule); border-radius:var(--radius); padding:10px; resize:vertical;
+    background:#FCFAF5; color:var(--ink);
+  }
+  .import-hint{font-size:11px; color:var(--ink-soft); margin-top:6px; line-height:1.6;}
+  .row{display:flex; gap:10px; align-items:center; flex-wrap:wrap;}
+  select, input[type=text]{
+    font-family:'Inter',sans-serif; font-size:12px; padding:6px 8px; border:1px solid var(--rule);
+    border-radius:var(--radius); background:var(--paper-raised); color:var(--ink);
+  }
+  .btn{
+    font-family:'Inter',sans-serif; font-size:12px; font-weight:600; padding:8px 14px;
+    background:var(--ink); color:var(--paper); border:none; border-radius:var(--radius); cursor:pointer;
+  }
+  .btn:hover{background:var(--ledger);}
+  .btn.ghost{background:none; color:var(--ink); border:1px solid var(--ink);}
+  .btn.ghost:hover{background:var(--ink); color:var(--paper);}
+  .btn.small{padding:5px 10px; font-size:11px;}
+  .btn.danger:hover{background:var(--red);}
+
+  /* Table */
+  table{width:100%; border-collapse:collapse; font-size:12.5px;}
+  thead th{
+    text-align:left; font-size:10px; text-transform:uppercase; letter-spacing:0.05em;
+    color:var(--ink-soft); border-bottom:1px solid var(--ink); padding:6px 8px; font-weight:600;
+  }
+  tbody td{padding:7px 8px; border-bottom:1px solid var(--rule); vertical-align:middle;}
+  tbody tr:hover{background:var(--ledger-soft);}
+  td.amt{font-family:'IBM Plex Mono',monospace; text-align:right; white-space:nowrap;}
+  td.amt.neg{color:var(--red);}
+  td.amt.pos{color:var(--ledger);}
+  td.desc{max-width:280px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; cursor:pointer;}
+  td.desc.expanded{max-width:none; overflow:visible; white-space:normal; word-break:break-word;}
+  .tag{
+    display:inline-block; font-size:10px; padding:2px 7px; border-radius:10px;
+    background:var(--ledger-soft); color:var(--ledger); border:1px solid #cfe0cb;
+  }
+  select.cat-select{font-size:11px; padding:3px 4px;}
+  .del-btn{background:none; border:none; color:var(--ink-soft); cursor:pointer; font-size:13px;}
+  .del-btn:hover{color:var(--red);}
+  .empty-state{padding:30px 10px; text-align:center; color:var(--ink-soft); font-size:12.5px;}
+
+  /* Budget & planning */
+  input.budget-input{
+    width:90px; font-family:'IBM Plex Mono',monospace; font-size:12px; text-align:right;
+    padding:4px 6px; border:1px solid var(--rule); border-radius:var(--radius); background:var(--paper-raised); color:var(--ink);
+  }
+  .progress-track{width:100%; min-width:90px; height:8px; background:var(--rule); border-radius:6px; overflow:hidden;}
+  .progress-fill{height:100%; background:var(--ledger);}
+  .progress-fill.over{background:var(--red);}
+  .progress-pct{font-size:10px; color:var(--ink-soft); margin-top:3px; font-family:'IBM Plex Mono',monospace;}
+  .avg-suggest{font-family:'IBM Plex Mono',monospace; color:var(--ink-soft); font-size:12px;}
+  .use-btn{
+    font-size:10px; padding:3px 8px; background:none; border:1px solid var(--gold); color:var(--gold);
+    border-radius:10px; cursor:pointer;
+  }
+  .use-btn:hover{background:var(--gold); color:#fff;}
+
+  /* Charts */
+  .charts{display:grid; grid-template-columns:1fr 1fr; gap:20px;}
+  .chart-box{background:var(--paper-raised); border:1px solid var(--rule); border-radius:var(--radius); padding:16px;}
+  .chart-box h3{font-size:12px; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink-soft); margin:0 0 12px;}
+  .tx-layout{display:grid; grid-template-columns:2fr 1fr; gap:16px; align-items:start;}
+  canvas{max-height:230px;}
+
+  @media (max-width:700px){
+    .summary{grid-template-columns:repeat(2,1fr);}
+    .charts{grid-template-columns:1fr;}
+    .tx-layout{grid-template-columns:1fr;}
+    .masthead{flex-direction:column; align-items:flex-start; gap:10px;}
+  }
+  .footer-note{font-size:11px; color:var(--ink-soft); text-align:center; margin-top:40px;}
+
+  /* Tabs */
+  .tab-bar{display:flex; gap:4px; margin-bottom:24px; border-bottom:1px solid var(--rule);}
+  .tab-btn{
+    font-family:'Inter',sans-serif; font-size:13px; font-weight:600; padding:10px 16px;
+    background:none; border:none; border-bottom:2px solid transparent; color:var(--ink-soft);
+    cursor:pointer; display:flex; align-items:center; gap:7px; margin-bottom:-1px;
+  }
+  .tab-btn:hover{color:var(--ink);}
+  .tab-btn.active{color:var(--ink); border-bottom-color:var(--ledger);}
+  .segmented{display:inline-flex; border:1px solid var(--rule); border-radius:var(--radius); overflow:hidden;}
+  .segmented button{
+    font-family:'Inter',sans-serif; font-size:12px; padding:6px 12px;
+    background:var(--paper-raised); border:none; border-right:1px solid var(--rule);
+    color:var(--ink-soft); cursor:pointer;
+  }
+  .segmented button:last-child{border-right:none;}
+  .segmented button:hover:not(.active){color:var(--ink);}
+  .segmented button.active{background:var(--ledger); color:#fff;}
+  .badge{
+    display:inline-flex; align-items:center; justify-content:center; min-width:16px; height:16px;
+    padding:0 4px; border-radius:8px; background:var(--red); color:#fff; font-size:10px; font-weight:600;
+    font-family:'IBM Plex Mono',monospace;
+  }
+  .pending-item{background:var(--paper-raised); border:1px solid var(--rule); border-radius:var(--radius); padding:14px; margin-bottom:12px;}
+  .pending-meta{font-size:11px; color:var(--ink-soft); margin-bottom:8px; line-height:1.6;}
+  .pending-filename{font-family:'IBM Plex Mono',monospace; font-size:12px; font-weight:600; word-break:break-all;}
+  .excerpt-box{max-height:240px; overflow:auto; background:var(--ledger-soft); border:1px solid var(--rule); border-radius:var(--radius); padding:10px; margin-top:8px; font-family:'IBM Plex Mono',monospace; font-size:11px; white-space:pre-wrap; word-break:break-all;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="masthead">
+    <div>
+      <h1>Ledger</h1>
+      <div class="tagline">Personal spend analyser — bank & card statements, month over month</div>
+    </div>
+    <div class="month-nav">
+      <button onclick="shiftMonth(-1)">‹</button>
+      <div class="month-label" id="monthLabel">—</div>
+      <button onclick="shiftMonth(1)">›</button>
+    </div>
+  </div>
+  <div class="header-status">
+    <div class="left">
+      <span class="caption">Data file:</span>
+      <span id="fileStatus" class="caption">loading…</span>
+      <button class="btn small ghost" onclick="loadFromServer()">Reload from disk</button>
+    </div>
+    <span id="statusLine" class="caption">loading…</span>
+  </div>
+
+  <div class="tab-bar">
+    <button class="tab-btn active" id="tabBtnDashboard" onclick="switchTab('dashboard')">Dashboard</button>
+    <button class="tab-btn" id="tabBtnPending" onclick="switchTab('pending')">Pending Statements<span class="badge" id="pendingBadge" style="display:none;">0</span></button>
+    <button class="tab-btn" id="tabBtnFormats" onclick="switchTab('formats')">Statement Formats</button>
+  </div>
+
+  <div id="dashboardTab">
+
+
+
+  <div class="summary">
+    <div class="cell pos"><div class="label">Income</div><div class="value" id="sumIncome">—</div></div>
+    <div class="cell neg"><div class="label">Spend</div><div class="value" id="sumSpend">—</div></div>
+    <div class="cell"><div class="label">Net</div><div class="value" id="sumNet">—</div></div>
+    <div class="cell"><div class="label">Top category</div><div class="value" id="sumTop" style="font-size:14px;">—</div></div>
+  </div>
+
+  <section>
+    <div class="section-head">
+      <h2>Transactions — <span id="monthLabel2"></span></h2>
+      <div class="row">
+        <input type="text" id="searchBox" placeholder="Filter…" oninput="renderTable()" style="width:160px;">
+        <select id="categoryFilter" onchange="renderTable()"><option value="">All categories</option></select>
+        <select id="accountFilter" onchange="renderTable()"><option value="">All accounts</option></select>
+        <div class="segmented" id="accountTypeFilter" data-active="">
+          <button type="button" class="active" onclick="setAccountTypeFilter('', this)">All</button>
+          <button type="button" onclick="setAccountTypeFilter('saving', this)">Savings</button>
+          <button type="button" onclick="setAccountTypeFilter('credit', this)">Credit Card</button>
+        </div>
+        <button class="btn small ghost" onclick="exportCSV()">Export CSV</button>
+      </div>
+    </div>
+    <div class="tx-layout" id="txLayout">
+      <div class="panel" style="padding:0; overflow-x:auto;">
+        <table>
+          <thead><tr><th>Date</th><th>Description</th><th>Account</th><th>Category</th><th style="text-align:right;">Amount</th><th></th></tr></thead>
+          <tbody id="txBody"></tbody>
+        </table>
+        <div class="empty-state" id="emptyState" style="display:none;">No transactions this month yet — ask Claude Code to add a statement to transactions.csv.</div>
+      </div>
+      <div class="chart-box" id="categoryHistoryBox" style="display:none;">
+        <h3 id="categoryHistoryTitle">Category — last 12 mo.</h3>
+        <canvas id="categoryHistoryChart"></canvas>
+        <h3 style="margin-top:18px;">By account</h3>
+        <canvas id="categoryAccountChart"></canvas>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Budget &amp; planning — <span id="planMonthLabel"></span></h2>
+      <span class="eyebrow">set a budget, or let trend suggest one</span>
+    </div>
+    <div class="panel" style="padding:0; overflow-x:auto;">
+      <table>
+        <thead><tr><th>Category</th><th style="text-align:right;">Budget</th><th style="text-align:right;">Actual (this month)</th><th>Progress</th><th style="text-align:right;">Avg, last 3 mo.</th><th></th></tr></thead>
+        <tbody id="budgetBody"></tbody>
+      </table>
+    </div>
+    <div class="import-hint" style="margin-top:10px;">
+      Budgets are saved per category and carry forward month to month. Categories left blank fall back to a
+      suggested budget — the average spend over the last 3 months you have data for — click "Use" to adopt it.
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Backup</h2>
+      <span class="eyebrow">snapshot of transactions.csv</span>
+    </div>
+    <div class="panel">
+      <div class="row">
+        <button class="btn" onclick="downloadBackup()">Download a copy</button>
+        <span id="backupLog" style="font-size:11px; color:var(--ink-soft);"></span>
+      </div>
+      <div class="import-hint">
+        transactions.csv is a real file on disk — that file itself is your primary copy.
+        This just saves a dated snapshot alongside it, in case you want a point-in-time copy before a big edit.
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head"><h2>Where it's going</h2></div>
+    <div class="charts">
+      <div class="chart-box">
+        <h3>This month by category</h3>
+        <canvas id="catChart"></canvas>
+      </div>
+      <div class="chart-box">
+        <h3>Spend trend, last 12 months</h3>
+        <canvas id="trendChart"></canvas>
+      </div>
+    </div>
+  </section>
+
+  <div class="footer-note">Transactions live in transactions.csv, served by a local server on this machine (server.py) — Claude Code writes new statements into it, this page reads/edits it. Budgets are saved in this browser only. Nothing leaves your machine.</div>
+
+  </div>
+
+  <div id="pendingTab" style="display:none;">
+    <div class="section-head">
+      <h2>Manual upload</h2>
+      <span class="eyebrow">CSV, Excel, or PDF</span>
+    </div>
+    <div class="panel" style="margin-bottom:28px;">
+      <div class="row">
+        <input type="text" id="uploadAccount" list="accountList" required placeholder="Account label (e.g. HDFC Diners, Toast salary a/c) — required" style="flex:1; min-width:200px;">
+        <datalist id="accountList"></datalist>
+        <input type="file" id="uploadFile" accept=".csv,.xlsx,.xls,.pdf" style="display:none;" onchange="handleUploadFile(event)">
+        <button class="btn" onclick="document.getElementById('uploadFile').click()">Choose file…</button>
+      </div>
+      <div class="row" id="passwordRow" style="display:none; margin-top:10px;">
+        <input type="password" id="uploadPassword" placeholder="File password">
+        <button class="btn" onclick="retryUploadWithPassword()">Unlock &amp; upload</button>
+      </div>
+      <div class="import-hint" id="uploadLog"></div>
+      <div class="import-hint">
+        CSV/Excel parsing is reliable. PDF parsing is best-effort (simple date/description/amount
+        layouts only) — if it doesn't find rows in a PDF, paste that statement to Claude Code in
+        chat instead, which can read complex/multi-column layouts properly.
+      </div>
+    </div>
+
+    <div class="section-head">
+      <h2>Pending Statements</h2>
+      <span class="eyebrow">auto-fetched from email</span>
+    </div>
+    <div class="row" style="margin-bottom:14px;">
+      <button class="btn small ghost" id="fetchNowBtn" onclick="fetchNow()">Check email now</button>
+      <span class="import-hint" id="fetchNowLog"></span>
+    </div>
+    <div id="pendingPanel"></div>
+  </div>
+
+  <div id="formatsTab" style="display:none;">
+    <div class="section-head">
+      <h2>Statement Formats</h2>
+      <span class="eyebrow">check parsing, then register a subject mapping</span>
+    </div>
+
+    <div class="panel" style="margin-bottom:28px;">
+      <div class="row">
+        <input type="text" id="formatAccount" list="accountList" placeholder="Account label (optional — for preview only)" style="flex:1; min-width:200px;">
+        <input type="file" id="formatFile" accept=".csv,.xlsx,.xls,.pdf" style="display:none;" onchange="handleFormatFile(event)">
+        <button class="btn" onclick="document.getElementById('formatFile').click()">Choose file…</button>
+      </div>
+      <div class="row" id="formatPasswordRow" style="display:none; margin-top:10px;">
+        <input type="password" id="formatPassword" placeholder="File password">
+        <button class="btn" onclick="retryFormatCheckWithPassword()">Unlock &amp; test</button>
+      </div>
+      <div class="import-hint" id="formatLog"></div>
+      <div id="formatResult"></div>
+    </div>
+
+    <div class="section-head">
+      <h2>Saved subject mappings</h2>
+      <span class="eyebrow">statement_subjects.json</span>
+    </div>
+    <div class="panel" style="padding:0; overflow-x:auto;">
+      <table>
+        <thead><tr><th>Subject phrase</th><th>Account label</th><th></th></tr></thead>
+        <tbody id="subjectsBody"></tbody>
+      </table>
+      <div class="empty-state" id="subjectsEmpty" style="display:none;">No subject mappings yet.</div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const CATEGORIES = ["Food & Dining","Groceries","Transport","Shopping","Bills & Utilities","Rent","Entertainment","Health & Fitness","Subscriptions","Travel","Insurance","Loan / EMI","Investments","Dividend","Bank Charges","Salary / Income","Cashback","Self Transfer","Family Transfer","Credit Card Bill","Settlement","Transfers","Others"];
+
+const RULES = {
+  "Investments": ["rfx ","mutual fund","sip ","zerodha","indian clearing corp","weekly funds","ppf/","jio black","shivalik","suryoday"],
+  "Dividend": ["ach-cr-","varun beverages","national aluminium","powergrid infrastruc","indigrid infras","embassy office","mindspace busin","irb invit","brookfield india real estate"],
+  "Salary / Income": ["salary","credited by employer","refund","interest cr","interest paid","reimbursement","toast inc","toast tab","mynd integrated solutions"],
+  "Credit Card Bill": ["ccbbps","hdfc card payment","billpay dr-hdfc0d","finzoom","indwealth"],
+  "Self Transfer": ["own account","self transfer","ravinder"],
+  "Family Transfer": ["shriya gupta"],
+  "Cashback": ["cashback","cash back","reward point","reward redemption"],
+  "Settlement": ["dilip kumar"],
+  "Food & Dining": ["swiggy","zomato","restaurant","cafe","starbucks","dominos","mcdonald","kfc","pizza","eatery","dine"],
+  "Groceries": ["bigbasket","blinkit","blink commerce","zepto","dmart","grocery","supermarket","reliance fresh","instamart","innovative retail con"],
+  "Transport": ["uber","ola","rapido","petrol","fuel","metro","irctc","indigo","redbus","toll","parking"],
+  "Shopping": ["amazon","flipkart","myntra","ajio","nykaa","shopping","lenskart","home furnishing"],
+  "Bills & Utilities": ["electricity","water bill","broadband","airtel","jio recharge","jio prepaid","jio postpaid","jio fiber","reliance jio","vodafone","wifi","gas bill","utility","dth"],
+  "Rent": ["rent","landlord","housing.com","nobroker"],
+  "Entertainment": ["netflix","prime video","hotstar","spotify","bookmyshow","pvr","inox","youtube premium"],
+  "Health & Fitness": ["pharmacy","hospital","clinic","cult.fit","crossfit","apollo","gym","medplus","diagnostic","spa","1mg"],
+  "Subscriptions": ["subscription","icloud","google one","google play","chatgpt","github","openai","notion","adobe","apple","linkedin"],
+  "Travel": ["makemytrip","goibibo","hotel","airbnb","booking.com","agoda","flight","indigo air","vistara","priority pass","lounge"],
+  "Transfers": ["neft","imps","transfer","rtgs"],
+  "Insurance": ["insurance","pz insurance","hdfc ergo","lic premium"],
+  "Loan / EMI": ["ach d-","loan emi"],
+  "Bank Charges": ["cgst","sgst","gst","bank charges","joining fee"]
+};
+
+let state = { month: currentMonthKey(), transactions: [], allTransactions: [], pending: [] };
+let catChartInstance = null, trendChartInstance = null, categoryHistoryChartInstance = null, categoryAccountChartInstance = null;
+
+function currentMonthKey(d=new Date()){ return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,'0'); }
+function monthLabelFromKey(key){
+  const [y,m] = key.split('-').map(Number);
+  return new Date(y, m-1, 1).toLocaleString('en-US',{month:'long', year:'numeric'});
+}
+function fmt(n){ return (n<0?'-':'') + '₹' + Math.abs(n).toLocaleString('en-IN',{maximumFractionDigits:0}); }
+function uid(){ return Math.random().toString(36).slice(2,10); }
+
+function guessCategory(desc){
+  const d = (desc||"").toLowerCase();
+  for(const cat of Object.keys(RULES)){
+    if(RULES[cat].some(kw => d.includes(kw))) return cat;
+  }
+  return "Others";
+}
+
+function parseAmountVal(v){
+  if(v===undefined||v===null) return NaN;
+  const cleaned = String(v).replace(/[,₹$\s]/g,'').replace(/^\((.*)\)$/,'-$1');
+  const n = parseFloat(cleaned);
+  return n;
+}
+async function loadFromServer(){
+  try{
+    const res = await fetch('transactions.csv?_=' + Date.now(), {cache:'no-store'});
+    if(!res.ok) throw new Error('HTTP ' + res.status);
+    const text = await res.text();
+    state.allTransactions = parseCsvText(text);
+    document.getElementById('fileStatus').textContent = 'loaded — ' + state.allTransactions.length + ' transaction(s)';
+    await refreshAll();
+  }catch(e){
+    console.error(e);
+    document.getElementById('fileStatus').textContent = 'could not load transactions.csv — is server.py running?';
+  }
+}
+
+async function persistChange(){
+  try{
+    const res = await fetch('/save', {method:'POST', body: toCsvText(state.allTransactions)});
+    if(!res.ok) throw new Error('HTTP ' + res.status);
+    document.getElementById('fileStatus').textContent = 'saved — ' + state.allTransactions.length + ' transaction(s)';
+  }catch(e){
+    console.error(e);
+    document.getElementById('fileStatus').textContent = 'save failed — is server.py running?';
+  }
+}
+
+let pendingUploadFile = null;
+
+function handleUploadFile(evt){
+  const file = evt.target.files[0];
+  if(!file) return;
+  const accountInput = document.getElementById('uploadAccount');
+  const accountError = accountLabelError(accountInput.value.trim());
+  if(accountError){
+    document.getElementById('uploadLog').textContent = accountError;
+    accountInput.focus();
+    evt.target.value = '';
+    return;
+  }
+  pendingUploadFile = file;
+  uploadFile(file, null);
+}
+
+async function loadAccounts(){
+  try{
+    const res = await fetch('/accounts?_=' + Date.now(), {cache:'no-store'});
+    if(!res.ok) return;
+    const accounts = await res.json();
+    document.getElementById('accountList').innerHTML = accounts.map(a=>`<option value="${escapeHtml(a)}">`).join('');
+  }catch(e){ console.error(e); }
+}
+
+function retryUploadWithPassword(){
+  if(!pendingUploadFile) return;
+  const password = document.getElementById('uploadPassword').value;
+  uploadFile(pendingUploadFile, password);
+}
+
+async function uploadFile(file, password){
+  const logEl = document.getElementById('uploadLog');
+  const passwordRow = document.getElementById('passwordRow');
+  const account = document.getElementById('uploadAccount').value.trim();
+  logEl.textContent = 'Uploading ' + file.name + '…';
+
+  const form = new FormData();
+  form.append('file', file);
+  form.append('account', account);
+  if(password) form.append('password', password);
+
+  try{
+    const res = await fetch('/upload', {method:'POST', body: form});
+    const data = await res.json();
+    if(data.needs_password){
+      passwordRow.style.display = 'flex';
+      logEl.textContent = file.name + ' is password-protected — enter the password above.';
+      return;
+    }
+    if(data.error){
+      logEl.textContent = 'Error: ' + data.error;
+      return;
+    }
+    passwordRow.style.display = 'none';
+    document.getElementById('uploadPassword').value = '';
+    document.getElementById('uploadFile').value = '';
+    pendingUploadFile = null;
+    let msg = data.added + ' transaction(s) added from ' + file.name + '.';
+    if(data.duplicates_skipped) msg += ' (' + data.duplicates_skipped + ' already in transactions.csv, skipped.)';
+    logEl.textContent = msg;
+    await loadFromServer();
+    await loadAccounts();
+  }catch(e){
+    console.error(e);
+    logEl.textContent = 'Upload failed — is server.py running? See console for details.';
+  }
+}
+
+async function loadPending(){
+  try{
+    const res = await fetch('/pending?_=' + Date.now(), {cache:'no-store'});
+    if(!res.ok) return;
+    state.pending = await res.json();
+    renderPending();
+  }catch(e){ console.error(e); }
+}
+
+async function fetchNow(){
+  const btn = document.getElementById('fetchNowBtn');
+  const logEl = document.getElementById('fetchNowLog');
+  btn.disabled = true;
+  logEl.textContent = 'Checking email…';
+  try{
+    const res = await fetch('/pending/fetch-now', {method: 'POST'});
+    const data = await res.json();
+    if(data.error){
+      logEl.textContent = 'Error: ' + data.error;
+    }else{
+      logEl.textContent = data.matched + ' email(s) matched, ' + data.saved + ' new attachment(s) saved.';
+      await loadPending();
+    }
+  }catch(e){
+    console.error(e);
+    logEl.textContent = 'Check failed — is server.py running?';
+  }finally{
+    btn.disabled = false;
+  }
+}
+
+function switchTab(name){
+  document.getElementById('dashboardTab').style.display = name === 'dashboard' ? '' : 'none';
+  document.getElementById('pendingTab').style.display = name === 'pending' ? '' : 'none';
+  document.getElementById('formatsTab').style.display = name === 'formats' ? '' : 'none';
+  document.getElementById('tabBtnDashboard').classList.toggle('active', name === 'dashboard');
+  document.getElementById('tabBtnPending').classList.toggle('active', name === 'pending');
+  document.getElementById('tabBtnFormats').classList.toggle('active', name === 'formats');
+}
+
+function formatReceived(iso){
+  if(!iso) return '';
+  const d = new Date(iso);
+  return isNaN(d) ? '' : d.toLocaleString('en-IN', {day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit'});
+}
+
+function renderPending(){
+  const badge = document.getElementById('pendingBadge');
+  const panel = document.getElementById('pendingPanel');
+  const count = state.pending ? state.pending.length : 0;
+
+  if(count){
+    badge.textContent = count;
+    badge.style.display = 'inline-flex';
+  }else{
+    badge.style.display = 'none';
+  }
+
+  if(!count){
+    panel.innerHTML = '<div class="empty-state">No pending statements — new emails matching statement_subjects.json will show up here after the next fetch.</div>';
+    return;
+  }
+
+  panel.innerHTML = state.pending.map(p => `
+    <div class="pending-item" data-filename="${escapeHtml(p.filename)}">
+      <div class="pending-filename">${escapeHtml(p.filename)}</div>
+      <div class="pending-meta">
+        ${p.subject ? 'Subject: ' + escapeHtml(p.subject) + '<br>' : ''}
+        ${p.received ? 'Received: ' + escapeHtml(formatReceived(p.received)) : ''}
+      </div>
+      <div class="row">
+        <input type="text" class="pending-account" list="accountList" value="${escapeHtml(p.suggested_account || '')}" placeholder="Account label — required" style="flex:1; min-width:180px;">
+        <button class="btn small ghost" onclick="previewPending(this)">Preview</button>
+        <button class="btn small" onclick="uploadPending(this)">Upload</button>
+        <button class="del-btn" onclick="deletePending(this)" title="Delete">✕</button>
+      </div>
+      <div class="row pending-password-row" data-action="upload" style="display:none; margin-top:8px;">
+        <input type="password" class="pending-password" placeholder="File password">
+        <button class="btn small pending-retry-btn" onclick="retryPendingWithPassword(this)">Unlock &amp; upload</button>
+      </div>
+      <div class="import-hint pending-log"></div>
+      <div class="pending-preview" style="display:none; margin-top:10px;"></div>
+    </div>`).join('');
+}
+
+function uploadPending(btn){
+  submitPending(btn.closest('.pending-item'), null);
+}
+
+function previewPending(btn){
+  const item = btn.closest('.pending-item');
+  const passwordInput = item.querySelector('.pending-password');
+  const password = passwordInput && passwordInput.value ? passwordInput.value : null;
+  fetchPendingPreview(item, password);
+}
+
+async function fetchPendingPreview(item, password){
+  const filename = item.dataset.filename;
+  const account = item.querySelector('.pending-account').value.trim();
+  const logEl = item.querySelector('.pending-log');
+  const passwordRow = item.querySelector('.pending-password-row');
+  const previewEl = item.querySelector('.pending-preview');
+  logEl.textContent = 'Loading preview…';
+  try{
+    const res = await fetch('/pending/preview', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({filename, account, password: password || undefined}),
+    });
+    const data = await res.json();
+    if(data.needs_password){
+      passwordRow.style.display = 'flex';
+      passwordRow.dataset.action = 'preview';
+      passwordRow.querySelector('.pending-retry-btn').textContent = 'Unlock & preview';
+      logEl.textContent = filename + ' is password-protected — enter the password above, then click "Unlock & preview".';
+      previewEl.style.display = 'none';
+      return;
+    }
+    if(data.error){
+      logEl.textContent = 'Error: ' + data.error;
+      previewEl.style.display = 'none';
+      return;
+    }
+    logEl.textContent = data.transactions.length + ' transaction(s) found in this file.';
+    renderPendingPreview(previewEl, data.transactions);
+  }catch(e){
+    console.error(e);
+    logEl.textContent = 'Preview failed — is server.py running?';
+  }
+}
+
+function renderPendingPreview(el, txs){
+  const rows = txs.slice().sort((a,b)=> a.date < b.date ? 1 : -1);
+  el.innerHTML = `
+    <div style="max-height:260px; overflow-y:auto; border:1px solid var(--rule); border-radius:var(--radius);">
+      <table>
+        <thead><tr><th>Date</th><th>Description</th><th>Category</th><th style="text-align:right;">Amount</th></tr></thead>
+        <tbody>
+          ${rows.map(t => `<tr>
+            <td>${t.date}</td>
+            <td class="desc" title="${escapeHtml(t.description)}">${escapeHtml(t.description)}</td>
+            <td><span class="tag">${escapeHtml(t.category)}</span></td>
+            <td class="amt ${t.amount<0?'neg':'pos'}">${fmt(t.amount)}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`;
+  el.style.display = 'block';
+}
+
+function retryPendingWithPassword(btn){
+  const item = btn.closest('.pending-item');
+  const passwordRow = item.querySelector('.pending-password-row');
+  const password = item.querySelector('.pending-password').value;
+  if(passwordRow.dataset.action === 'preview'){
+    fetchPendingPreview(item, password);
+  }else{
+    submitPending(item, password);
+  }
+}
+
+async function deletePending(btn){
+  const item = btn.closest('.pending-item');
+  const filename = item.dataset.filename;
+  if(!confirm('Delete ' + filename + '? This cannot be undone.')) return;
+  try{
+    const res = await fetch('/pending/delete', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({filename}),
+    });
+    const data = await res.json();
+    if(data.error){ item.querySelector('.pending-log').textContent = 'Error: ' + data.error; return; }
+    await loadPending();
+  }catch(e){
+    console.error(e);
+    item.querySelector('.pending-log').textContent = 'Delete failed — is server.py running?';
+  }
+}
+
+async function submitPending(item, password){
+  const filename = item.dataset.filename;
+  const account = item.querySelector('.pending-account').value.trim();
+  const logEl = item.querySelector('.pending-log');
+  const passwordRow = item.querySelector('.pending-password-row');
+  const accountError = accountLabelError(account);
+  if(accountError){ logEl.textContent = accountError; return; }
+  logEl.textContent = 'Uploading ' + filename + '…';
+  try{
+    const res = await fetch('/pending/upload', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({filename, account, password: password || undefined}),
+    });
+    const data = await res.json();
+    if(data.needs_password){
+      passwordRow.style.display = 'flex';
+      passwordRow.dataset.action = 'upload';
+      passwordRow.querySelector('.pending-retry-btn').textContent = 'Unlock & upload';
+      logEl.textContent = filename + ' is password-protected — enter the password above.';
+      return;
+    }
+    if(data.error){
+      logEl.textContent = 'Error: ' + data.error;
+      return;
+    }
+    let msg = data.added + ' transaction(s) added from ' + filename + '.';
+    if(data.duplicates_skipped) msg += ' (' + data.duplicates_skipped + ' already in transactions.csv, skipped.)';
+    logEl.textContent = msg;
+    await loadFromServer();
+    await loadAccounts();
+    await loadPending();
+  }catch(e){
+    console.error(e);
+    logEl.textContent = 'Upload failed — is server.py running?';
+  }
+}
+
+let formatCheckFile = null;
+let lastFormatCheckRaw = null;
+
+function handleFormatFile(evt){
+  const file = evt.target.files[0];
+  if(!file) return;
+  formatCheckFile = file;
+  testFormatParse(file, null);
+}
+
+function retryFormatCheckWithPassword(){
+  if(!formatCheckFile) return;
+  const password = document.getElementById('formatPassword').value;
+  testFormatParse(formatCheckFile, password);
+}
+
+async function testFormatParse(file, password){
+  const logEl = document.getElementById('formatLog');
+  const passwordRow = document.getElementById('formatPasswordRow');
+  const resultEl = document.getElementById('formatResult');
+  const account = document.getElementById('formatAccount').value.trim();
+  logEl.textContent = 'Testing ' + file.name + '…';
+  resultEl.innerHTML = '';
+  lastFormatCheckRaw = null;
+
+  const form = new FormData();
+  form.append('file', file);
+  if(account) form.append('account', account);
+  if(password) form.append('password', password);
+
+  try{
+    const res = await fetch('/format-check', {method:'POST', body: form});
+    const data = await res.json();
+    if(data.needs_password){
+      passwordRow.style.display = 'flex';
+      logEl.textContent = file.name + ' is password-protected — enter the password above, then "Unlock & test".';
+      return;
+    }
+    passwordRow.style.display = 'none';
+    if(data.transactions){
+      logEl.textContent = '✓ Parsed successfully — ' + data.transactions.length + ' transaction(s) found.';
+      renderFormatSuccess(resultEl, data.transactions, account);
+      return;
+    }
+    logEl.textContent = '✗ ' + (data.error || 'Could not parse this file.');
+    renderFormatFailure(resultEl, file.name, data.error, data.raw_excerpt);
+  }catch(e){
+    console.error(e);
+    logEl.textContent = 'Test failed — is server.py running?';
+  }
+}
+
+function renderFormatSuccess(el, txs, account){
+  const rows = txs.slice(0, 20).slice().sort((a,b)=> a.date < b.date ? 1 : -1);
+  el.innerHTML = `
+    <div style="max-height:240px; overflow-y:auto; border:1px solid var(--rule); border-radius:var(--radius); margin-top:10px;">
+      <table>
+        <thead><tr><th>Date</th><th>Description</th><th>Category</th><th style="text-align:right;">Amount</th></tr></thead>
+        <tbody>
+          ${rows.map(t => `<tr>
+            <td>${t.date}</td>
+            <td class="desc" title="${escapeHtml(t.description)}">${escapeHtml(t.description)}</td>
+            <td><span class="tag">${escapeHtml(t.category)}</span></td>
+            <td class="amt ${t.amount<0?'neg':'pos'}">${fmt(t.amount)}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+    <div class="row" style="margin-top:12px;">
+      <input type="text" id="newSubjectPhrase" placeholder="Subject phrase (exact substring from the email subject)" style="flex:1; min-width:220px;">
+      <input type="text" id="newSubjectAccount" placeholder="Account label to tag" style="flex:1; min-width:160px;" value="${escapeHtml(account)}">
+      <button class="btn small" onclick="saveSubjectMapping()">Save mapping</button>
+    </div>
+    <div class="import-hint" id="subjectSaveLog"></div>`;
+}
+
+function renderFormatFailure(el, filename, error, rawExcerpt){
+  if(!rawExcerpt){
+    lastFormatCheckRaw = null;
+    el.innerHTML = '';
+    return;
+  }
+  lastFormatCheckRaw = {filename, error, rawExcerpt};
+  el.innerHTML = `
+    <div class="import-hint" style="margin-top:10px;">
+      No parser matched this file. Raw extracted text below — copy it to Claude Code in chat to get a new parser built for this format.
+    </div>
+    <div class="excerpt-box">${escapeHtml(rawExcerpt)}</div>
+    <div class="row" style="margin-top:8px;">
+      <button class="btn small ghost" onclick="copyFormatDetails()">Copy details for Claude</button>
+      <span class="import-hint" id="copyLog"></span>
+    </div>`;
+}
+
+async function copyFormatDetails(){
+  if(!lastFormatCheckRaw) return;
+  const {filename, error, rawExcerpt} = lastFormatCheckRaw;
+  const text = `File: ${filename}\nParse error: ${error}\n\nRaw extracted text (first pages):\n${rawExcerpt}`;
+  const copyLog = document.getElementById('copyLog');
+  try{
+    await navigator.clipboard.writeText(text);
+    copyLog.textContent = 'Copied — paste into Claude Code.';
+  }catch(e){
+    console.error(e);
+    copyLog.textContent = 'Could not copy automatically — select the text above manually.';
+  }
+}
+
+async function saveSubjectMapping(){
+  const phrase = document.getElementById('newSubjectPhrase').value.trim();
+  const account = document.getElementById('newSubjectAccount').value.trim();
+  const logEl = document.getElementById('subjectSaveLog');
+  if(!phrase){
+    logEl.textContent = 'A subject phrase is required.';
+    return;
+  }
+  const accountError = accountLabelError(account);
+  if(accountError){
+    logEl.textContent = accountError;
+    return;
+  }
+  try{
+    const res = await fetch('/statement-subjects/save', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({phrase, account}),
+    });
+    const data = await res.json();
+    if(data.error){ logEl.textContent = 'Error: ' + data.error; return; }
+    logEl.textContent = 'Saved — "' + phrase + '" will tag new fetches as "' + account + '".';
+    await loadStatementSubjects();
+  }catch(e){
+    console.error(e);
+    logEl.textContent = 'Save failed — is server.py running?';
+  }
+}
+
+async function loadStatementSubjects(){
+  try{
+    const res = await fetch('/statement-subjects?_=' + Date.now(), {cache:'no-store'});
+    if(!res.ok) return;
+    renderStatementSubjects(await res.json());
+  }catch(e){ console.error(e); }
+}
+
+function renderStatementSubjects(subjects){
+  const body = document.getElementById('subjectsBody');
+  const empty = document.getElementById('subjectsEmpty');
+  const entries = Object.entries(subjects || {});
+  empty.style.display = entries.length ? 'none' : 'block';
+  body.innerHTML = entries.map(([phrase, account]) => `
+    <tr>
+      <td>${escapeHtml(phrase)}</td>
+      <td><span class="tag">${escapeHtml(account)}</span></td>
+      <td><button class="del-btn" title="Delete" data-phrase="${escapeHtml(phrase)}" onclick="deleteSubjectMapping(this)">✕</button></td>
+    </tr>`).join('');
+}
+
+async function deleteSubjectMapping(btn){
+  const phrase = btn.dataset.phrase;
+  if(!confirm('Delete subject mapping "' + phrase + '"?')) return;
+  try{
+    const res = await fetch('/statement-subjects/delete', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({phrase}),
+    });
+    const data = await res.json();
+    if(data.error){ alert('Error: ' + data.error); return; }
+    renderStatementSubjects(data);
+  }catch(e){
+    console.error(e);
+    alert('Delete failed — is server.py running?');
+  }
+}
+
+function parseCsvText(text){
+  if(!text.trim()) return [];
+  const parsed = Papa.parse(text.trim(), {header:true, skipEmptyLines:true});
+  return parsed.data.map(r=>{
+    const amount = parseAmountVal(r.amount);
+    const cat = (r.category||'').trim();
+    const category = CATEGORIES.includes(cat) ? cat : guessCategory(r.description);
+    return {
+      id: (r.id||'').trim() || uid(),
+      date: (r.date||'').trim(),
+      description: (r.description||'').trim(),
+      amount, account: (r.account||'').trim() || 'Unlabelled',
+      category
+    };
+  }).filter(t=>t.date && !isNaN(t.amount) && t.description);
+}
+
+function toCsvText(txs){
+  const rows = [['id','date','description','amount','account','category']];
+  txs.slice().sort((a,b)=> a.date<b.date?-1:(a.date>b.date?1:0)).forEach(t=>{
+    rows.push([t.id,t.date,t.description,t.amount,t.account,t.category]);
+  });
+  return rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n') + '\n';
+}
+
+function monthsFromAll(){
+  return [...new Set(state.allTransactions.map(t=>t.date.slice(0,7)))].sort();
+}
+function txsForMonth(mKey){
+  return state.allTransactions.filter(t=>t.date.slice(0,7)===mKey);
+}
+
+async function shiftMonth(delta){
+  const [y,m] = state.month.split('-').map(Number);
+  const d = new Date(y, m-1+delta, 1);
+  state.month = currentMonthKey(d);
+  await refreshAll();
+}
+
+async function refreshAll(){
+  document.getElementById('monthLabel').textContent = monthLabelFromKey(state.month);
+  document.getElementById('monthLabel2').textContent = monthLabelFromKey(state.month);
+  state.transactions = txsForMonth(state.month);
+  renderTable();
+  renderSummary();
+  renderTrend();
+  renderBudget();
+  document.getElementById('statusLine').textContent = 'showing ' + state.transactions.length + ' transaction(s)';
+}
+
+const BUDGET_KEY = 'ledger:budgets';
+const SPEND_CATEGORIES = CATEGORIES.filter(c => !['Salary / Income', 'Dividend', 'Self Transfer', 'Family Transfer', 'Cashback'].includes(c));
+const INCOME_CATEGORIES = ['Salary / Income', 'Dividend', 'Cashback'];
+
+function getBudgets(){
+  try{ return JSON.parse(localStorage.getItem(BUDGET_KEY) || '{}'); }catch(e){ return {}; }
+}
+function saveBudgets(budgets){
+  localStorage.setItem(BUDGET_KEY, JSON.stringify(budgets));
+}
+
+function prevMonthKeys(mKey, count){
+  const [y,m] = mKey.split('-').map(Number);
+  const keys = [];
+  for(let i=1;i<=count;i++){
+    const d = new Date(y, m-1-i, 1);
+    keys.push(currentMonthKey(d));
+  }
+  return keys;
+}
+
+function renderBudget(){
+  document.getElementById('planMonthLabel').textContent = monthLabelFromKey(state.month);
+  const budgets = getBudgets();
+
+  const actualByCat = {};
+  state.transactions.forEach(t=>{ actualByCat[t.category]=(actualByCat[t.category]||0)+t.amount; });
+  Object.keys(actualByCat).forEach(c=>{ actualByCat[c] = Math.abs(actualByCat[c]); });
+
+  const priorKeys = prevMonthKeys(state.month, 3);
+  const priorByMonth = priorKeys.map(pk => txsForMonth(pk));
+  const avgByCat = {};
+  SPEND_CATEGORIES.forEach(cat=>{
+    let sum = 0, monthsWithData = 0;
+    priorByMonth.forEach(txs=>{
+      const total = Math.abs(txs.filter(t=>t.category===cat).reduce((a,t)=>a+t.amount,0));
+      if(total>0){ sum += total; monthsWithData++; }
+    });
+    avgByCat[cat] = monthsWithData ? Math.round(sum/monthsWithData) : 0;
+  });
+
+  const tbody = document.getElementById('budgetBody');
+  tbody.innerHTML = '';
+  SPEND_CATEGORIES.forEach(cat=>{
+    const budget = budgets[cat] || 0;
+    const actual = actualByCat[cat] || 0;
+    const avg = avgByCat[cat];
+    const effective = budget || avg;
+    const pct = effective ? Math.min(100, Math.round((actual/effective)*100)) : 0;
+    const over = effective>0 && actual>effective;
+
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${cat}</td>
+      <td style="text-align:right;"><input type="text" class="budget-input" data-cat="${cat}" value="${budget||''}" placeholder="${avg?('~'+avg):'—'}"></td>
+      <td class="amt neg">${actual ? fmt(-actual) : '—'}</td>
+      <td>
+        ${effective ? `<div class="progress-track"><div class="progress-fill ${over?'over':''}" style="width:${pct}%"></div></div><div class="progress-pct">${pct}% of ${fmt(effective)}${budget?'':' (suggested)'}</div>` : '<span class="avg-suggest">no data yet</span>'}
+      </td>
+      <td style="text-align:right;" class="avg-suggest">${avg ? fmt(avg) : '—'}</td>
+      <td>${(!budget && avg) ? `<button class="use-btn" data-cat="${cat}" data-avg="${avg}">Use</button>` : ''}</td>`;
+    tbody.appendChild(tr);
+  });
+
+  tbody.querySelectorAll('input.budget-input').forEach(inp=>{
+    inp.addEventListener('change', e=>{
+      const cat = e.target.dataset.cat;
+      const val = parseFloat(e.target.value.replace(/[,₹\s]/g,''));
+      const b = getBudgets();
+      if(!isNaN(val) && val>0) b[cat] = val; else delete b[cat];
+      saveBudgets(b);
+      renderBudget();
+    });
+  });
+  tbody.querySelectorAll('.use-btn').forEach(btn=>{
+    btn.addEventListener('click', e=>{
+      const cat = e.target.dataset.cat;
+      const avg = Number(e.target.dataset.avg);
+      const b = getBudgets();
+      b[cat] = avg;
+      saveBudgets(b);
+      renderBudget();
+    });
+  });
+}
+
+function renderSummary(){
+  const income = state.transactions.filter(t=>t.amount>0 && INCOME_CATEGORIES.includes(t.category)).reduce((a,t)=>a+t.amount,0);
+  // Net signed amounts per spend category first (so a refund/reversal credit
+  // offsets its own category's debits) rather than filtering to amount<0,
+  // which would just silently drop credits instead of netting them.
+  const spendCatTxs = state.transactions.filter(t=>SPEND_CATEGORIES.includes(t.category));
+  const spend = spendCatTxs.reduce((a,t)=>a+t.amount,0);
+  document.getElementById('sumIncome').textContent = fmt(income);
+  document.getElementById('sumSpend').textContent = fmt(spend);
+  document.getElementById('sumNet').textContent = fmt(income+spend);
+
+  const byCat = {};
+  spendCatTxs.forEach(t=>{ byCat[t.category]=(byCat[t.category]||0)+t.amount; });
+  Object.keys(byCat).forEach(c=>{ byCat[c] = Math.abs(byCat[c]); });
+  const top = Object.entries(byCat).sort((a,b)=>b[1]-a[1])[0];
+  document.getElementById('sumTop').textContent = top ? top[0] : '—';
+
+  const ctx = document.getElementById('catChart').getContext('2d');
+  const labels = Object.keys(byCat), data = Object.values(byCat);
+  if(catChartInstance) catChartInstance.destroy();
+  catChartInstance = new Chart(ctx, {
+    type: 'doughnut',
+    data: { labels, datasets:[{ data, backgroundColor:['#2F5233','#B8873F','#A8432B','#5B6560','#7C9885','#D9B166','#8C4A3A','#C9BFA5','#4E6B52','#B08968','#3D4F45','#DDD0B8','#9C6644'] }] },
+    options: { plugins:{ legend:{ position:'bottom', labels:{ font:{size:10}, boxWidth:10 } } }, cutout:'55%' }
+  });
+}
+
+function renderTrend(){
+  const months = monthsFromAll();
+  const last12 = months.slice(-12);
+  const totals = last12.map(mKey => Math.abs(txsForMonth(mKey).filter(t=>SPEND_CATEGORIES.includes(t.category)).reduce((a,t)=>a+t.amount,0)));
+  const ctx = document.getElementById('trendChart').getContext('2d');
+  if(trendChartInstance) trendChartInstance.destroy();
+  trendChartInstance = new Chart(ctx, {
+    type:'bar',
+    data:{ labels: last12.map(k=>monthLabelFromKey(k).split(' ')[0]+" '"+k.slice(2,4)),
+      datasets:[{ data: totals, backgroundColor:'#2F5233', borderRadius:3 }] },
+    options:{ plugins:{legend:{display:false}}, scales:{ y:{ ticks:{ callback:v=>'₹'+v } } } }
+  });
+}
+
+function renderCategoryHistory(category){
+  const box = document.getElementById('categoryHistoryBox');
+  if(!category){
+    box.style.display = 'none';
+    return;
+  }
+  box.style.display = '';
+  document.getElementById('categoryHistoryTitle').textContent = category + ' — last 12 mo.';
+
+  const months = monthsFromAll();
+  const last12 = months.slice(-12);
+  const totals = last12.map(mKey => Math.abs(txsForMonth(mKey).filter(t=>t.category===category).reduce((a,t)=>a+t.amount,0)));
+
+  const ctx = document.getElementById('categoryHistoryChart').getContext('2d');
+  if(categoryHistoryChartInstance) categoryHistoryChartInstance.destroy();
+  categoryHistoryChartInstance = new Chart(ctx, {
+    type:'bar',
+    data:{ labels: last12.map(k=>monthLabelFromKey(k).split(' ')[0]+" '"+k.slice(2,4)),
+      datasets:[{ data: totals, backgroundColor:'#2F5233', borderRadius:3 }] },
+    options:{ plugins:{legend:{display:false}}, scales:{ y:{ ticks:{ callback:v=>'₹'+v } } } }
+  });
+
+  const byAccount = {};
+  last12.forEach(mKey => {
+    txsForMonth(mKey).filter(t=>t.category===category).forEach(t=>{
+      byAccount[t.account] = (byAccount[t.account]||0) + t.amount;
+    });
+  });
+  Object.keys(byAccount).forEach(a=>{ byAccount[a] = Math.abs(byAccount[a]); });
+  const acctLabels = Object.keys(byAccount), acctData = Object.values(byAccount);
+  const acctCtx = document.getElementById('categoryAccountChart').getContext('2d');
+  if(categoryAccountChartInstance) categoryAccountChartInstance.destroy();
+  categoryAccountChartInstance = new Chart(acctCtx, {
+    type: 'doughnut',
+    data: { labels: acctLabels, datasets:[{ data: acctData, backgroundColor:['#2F5233','#B8873F','#A8432B','#5B6560','#7C9885','#D9B166','#8C4A3A','#C9BFA5'] }] },
+    options: { plugins:{ legend:{ position:'bottom', labels:{ font:{size:9}, boxWidth:8 } } }, cutout:'55%' }
+  });
+}
+
+function populateAccountFilter(){
+  const sel = document.getElementById('accountFilter');
+  const current = sel.value;
+  const accounts = [...new Set(state.allTransactions.map(t=>t.account))].filter(Boolean).sort();
+  sel.innerHTML = '<option value="">All accounts</option>' +
+    accounts.map(a=>`<option value="${escapeHtml(a)}" ${a===current?'selected':''}>${escapeHtml(a)}</option>`).join('');
+}
+
+function setAccountTypeFilter(type, btn){
+  const el = document.getElementById('accountTypeFilter');
+  el.dataset.active = type;
+  el.querySelectorAll('button').forEach(b => b.classList.toggle('active', b === btn));
+  renderTable();
+}
+
+function renderTable(){
+  const q = document.getElementById('searchBox').value.toLowerCase();
+  const categoryFilter = document.getElementById('categoryFilter').value;
+  renderCategoryHistory(categoryFilter);
+  populateAccountFilter();
+  const accountFilter = document.getElementById('accountFilter').value;
+  const accountTypeFilter = document.getElementById('accountTypeFilter').dataset.active;
+  const tbody = document.getElementById('txBody');
+  tbody.innerHTML = '';
+  const rows = state.transactions
+    .filter(t => !q || t.description.toLowerCase().includes(q) || t.category.toLowerCase().includes(q) || t.account.toLowerCase().includes(q))
+    .filter(t => !categoryFilter || t.category === categoryFilter)
+    .filter(t => !accountFilter || t.account === accountFilter)
+    .filter(t => !accountTypeFilter || (accountTypeFilter === 'credit' ? t.account.endsWith('Credit Card') : !t.account.endsWith('Credit Card')))
+    .sort((a,b)=> a.date < b.date ? 1 : -1);
+  document.getElementById('emptyState').style.display = rows.length ? 'none' : 'block';
+
+  rows.forEach(t => {
+    const tr = document.createElement('tr');
+    const catOptions = CATEGORIES.map(c=>`<option value="${c}" ${c===t.category?'selected':''}>${c}</option>`).join('');
+    tr.innerHTML = `
+      <td>${t.date}</td>
+      <td class="desc" title="${escapeHtml(t.description)}" onclick="this.classList.toggle('expanded')">${escapeHtml(t.description)}</td>
+      <td><span class="tag">${escapeHtml(t.account)}</span></td>
+      <td><select class="cat-select" data-id="${t.id}">${catOptions}</select></td>
+      <td class="amt ${t.amount<0?'neg':'pos'}">${fmt(t.amount)}</td>
+      <td><button class="del-btn" data-id="${t.id}" title="Delete">✕</button></td>`;
+    tbody.appendChild(tr);
+  });
+
+  tbody.querySelectorAll('select.cat-select').forEach(sel=>{
+    sel.addEventListener('change', async e=>{
+      const id = e.target.dataset.id;
+      const tx = state.allTransactions.find(t=>t.id===id);
+      if(tx){ tx.category = e.target.value; await persistChange(); renderSummary(); renderBudget(); }
+    });
+  });
+  tbody.querySelectorAll('.del-btn').forEach(btn=>{
+    btn.addEventListener('click', async e=>{
+      const id = e.target.dataset.id;
+      state.allTransactions = state.allTransactions.filter(t=>t.id!==id);
+      state.transactions = txsForMonth(state.month);
+      await persistChange();
+      renderTable(); renderSummary(); renderTrend(); renderBudget();
+    });
+  });
+}
+
+function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+function accountLabelError(account){
+  if(!account) return 'Account label is required.';
+  if(!account.endsWith('Credit Card') && !account.endsWith('Saving Account Statement')){
+    return 'Account label must end with "Credit Card" or "Saving Account Statement".';
+  }
+  return null;
+}
+
+function exportCSV(){
+  if(!state.transactions.length) return;
+  const rows = [['date','description','account','category','amount']];
+  state.transactions.forEach(t=>rows.push([t.date,t.description,t.account,t.category,t.amount]));
+  const csv = rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const blob = new Blob([csv], {type:'text/csv'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `ledger-${state.month}.csv`;
+  a.click();
+}
+
+function downloadBackup(){
+  const blob = new Blob([toCsvText(state.allTransactions)], {type:'text/csv'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `transactions-backup-${currentMonthKey()}.csv`;
+  a.click();
+  document.getElementById('backupLog').textContent = state.allTransactions.length + ' transaction(s) backed up.';
+}
+
+document.getElementById('categoryFilter').innerHTML = '<option value="">All categories</option>' +
+  CATEGORIES.map(c=>`<option value="${c}">${c}</option>`).join('');
+
+loadFromServer();
+loadAccounts();
+loadPending();
+loadStatementSubjects();
+</script>
+</body>
+</html>

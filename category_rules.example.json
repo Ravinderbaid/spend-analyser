@@ -1,0 +1,22 @@
+{
+  "Investments": ["mutual fund", "sip ", "zerodha", "groww", "upstox", "ppf/"],
+  "Salary / Income": ["salary", "credited by employer", "refund", "interest cr", "interest paid", "reimbursement"],
+  "Credit Card Bill": ["ccbbps", "card payment"],
+  "Self Transfer": ["own account", "self transfer"],
+  "Family Transfer": [],
+  "Cashback": ["cashback", "cash back", "reward point", "reward redemption"],
+  "Settlement": [],
+  "Food & Dining": ["swiggy", "zomato", "restaurant", "cafe", "starbucks", "dominos", "mcdonald", "kfc", "pizza", "eatery", "dine"],
+  "Groceries": ["bigbasket", "blinkit", "zepto", "dmart", "grocery", "supermarket", "instamart"],
+  "Transport": ["uber", "ola", "rapido", "petrol", "fuel", "metro", "irctc", "indigo", "redbus", "toll", "parking"],
+  "Shopping": ["amazon", "flipkart", "myntra", "ajio", "nykaa", "shopping", "lenskart"],
+  "Bills & Utilities": ["electricity", "water bill", "broadband", "airtel", "jio", "vodafone", "wifi", "gas bill", "utility", "dth"],
+  "Rent": ["rent", "landlord", "housing.com", "nobroker"],
+  "Entertainment": ["netflix", "prime video", "hotstar", "spotify", "bookmyshow", "pvr", "inox", "youtube premium"],
+  "Health & Fitness": ["pharmacy", "hospital", "clinic", "cult.fit", "crossfit", "apollo", "gym", "medplus", "diagnostic", "spa"],
+  "Subscriptions": ["subscription", "icloud", "google one", "google play", "chatgpt", "github", "openai", "notion", "adobe", "apple", "linkedin"],
+  "Travel": ["makemytrip", "goibibo", "hotel", "airbnb", "booking.com", "agoda", "flight", "vistara", "lounge"],
+  "Insurance": ["insurance", "lic premium"],
+  "Loan / EMI": ["loan emi"],
+  "Bank Charges": ["cgst", "sgst", "gst", "bank charges", "joining fee"]
+}
