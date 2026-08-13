@@ -28,7 +28,10 @@ implementation detail aimed at whoever's extending the code.
 
 ## Files
 
-`server.py` Flask backend + all parsers · `spend_analyser.html` dashboard UI
+`server.py` Flask backend + all parsers · `pdf_ocr.py` generic OCR
+mechanics (image rendering, word-position row/column reconstruction) used
+by the HSBC layout below — no bank-specific or password logic, just
+pdfplumber-page-to-Tesseract-words · `spend_analyser.html` dashboard UI
 (vanilla JS, Chart.js, PapaParse) · `transactions.csv` the ledger (`id, date,
 description, amount, account, category`; amount signed, negative=spend) ·
 `category_rules.json` / `RULES` in the HTML: keyword→category, kept in sync
@@ -62,6 +65,25 @@ rule below for why), in this order in `read_pdf_rows()`:
 `extract_pdf_lines()` does the raw pikepdf-decrypt + pdfplumber-extract +
 `(cid:9)`-tab-glyph stripping shared by all of the above; `read_pdf_rows()`
 just adds the dispatch on top.
+
+**OCR fallback (HSBC Premier).** Only triggered when `extract_pdf_lines()`
+returns no text at all — some banks (seen: HSBC) render every statement
+line as a raster image with zero real text layer, which no amount of
+keyword tuning can fix. In that case `read_pdf_rows()` calls
+`pdf_ocr.ocr_pdf_words()` (600dpi render + Tesseract word-bounding-boxes —
+300dpi was measured to silently drop small amounts) and, if the OCR'd text
+contains both `"hsbc premier"` and `"savings account-res"`, routes to
+`parse_hsbc_savings_ocr_pages()`. That parser doesn't trust Tesseract's own
+reading order (observed reading an entire Deposits column before moving to
+Withdrawals, scrambling row alignment) — it clusters words into visual rows
+by y-position and classifies each into Date/Details/Deposits/Withdrawals/
+Balance by x-position against that page's own header row, then recomputes
+the running balance from scratch rather than trusting the OCR'd Balance
+cell, so a single misread digit in an amount can self-heal via balance-diff
+instead of silently producing a wrong figure. Needs the `tesseract` binary
+(`brew install tesseract`) in addition to the `pytesseract` pip package —
+without it, `ocr_pdf_words()` returns `[]` and this layout is skipped like
+any other unrecognized format, rather than erroring.
 
 ## Rules for working in this repo
 
