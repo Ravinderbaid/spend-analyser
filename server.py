@@ -891,6 +891,11 @@ def accounts():
     return jsonify(sorted({r["account"] for r in read_transactions() if r.get("account")}))
 
 
+@app.route("/rules")
+def rules():
+    return jsonify(load_rules())
+
+
 @app.route("/save", methods=["POST"])
 def save():
     body = request.get_data(as_text=True)

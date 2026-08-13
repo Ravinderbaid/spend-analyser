@@ -34,8 +34,9 @@ by the HSBC layout below — no bank-specific or password logic, just
 pdfplumber-page-to-Tesseract-words · `spend_analyser.html` dashboard UI
 (vanilla JS, Chart.js, PapaParse) · `transactions.csv` the ledger (`id, date,
 description, amount, account, category`; amount signed, negative=spend) ·
-`category_rules.json` / `RULES` in the HTML: keyword→category, kept in sync
-manually · `fetch_statements.py` standalone IMAP fetcher, never imported by
+`category_rules.json` keyword→category rules (git-ignored, personal —
+served to the browser via `/rules` rather than duplicated in the HTML) ·
+`fetch_statements.py` standalone IMAP fetcher, never imported by
 `server.py` · `mail_config.json` Gmail creds (git-ignored) ·
 `statement_subjects.json` email-subject→account-label map ·
 `incoming_statements/` staged attachments + `manifest.json` ·
@@ -106,9 +107,10 @@ any other unrecognized format, rather than erroring.
 - Before trusting any new or modified statement parser, reconcile its parsed
   total against the statement's own printed summary/total. Don't assume a
   parser is correct just because it produced rows.
-- `category_rules.json` and the `RULES` object embedded in
-  `spend_analyser.html` are two separate copies of the same keyword rules —
-  if one is edited, check whether the other needs the same change.
+- `category_rules.json` is the single source of truth for keyword→category
+  rules — the browser fetches it via `GET /rules` (see `loadRules()` in
+  `spend_analyser.html`) rather than keeping its own copy, since the file
+  is git-ignored (personal keywords) but `spend_analyser.html` isn't.
 - `EXCLUDE_KEYWORDS` in `server.py` intentionally drops self-repayment
   transactions (e.g. paying your own credit card from your own bank account)
   at ingestion — don't "fix" this by re-including them without understanding

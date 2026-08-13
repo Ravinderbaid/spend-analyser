@@ -366,30 +366,22 @@
 <script>
 const CATEGORIES = ["Food & Dining","Groceries","Transport","Shopping","Bills & Utilities","Rent","Entertainment","Health & Fitness","Subscriptions","Travel","Insurance","Loan / EMI","Investments","Dividend","Bank Charges","Salary / Income","Cashback","Self Transfer","Family Transfer","Credit Card Bill","Settlement","Transfers","Others"];
 
-const RULES = {
-  "Investments": ["rfx ","mutual fund","sip ","zerodha","indian clearing corp","weekly funds","ppf/","jio black","shivalik","suryoday"],
-  "Dividend": ["ach-cr-","varun beverages","national aluminium","powergrid infrastruc","indigrid infras","embassy office","mindspace busin","irb invit","brookfield india real estate"],
-  "Salary / Income": ["salary","credited by employer","refund","interest cr","interest paid","reimbursement","toast inc","toast tab","mynd integrated solutions"],
-  "Credit Card Bill": ["ccbbps","hdfc card payment","billpay dr-hdfc0d","finzoom","indwealth"],
-  "Self Transfer": ["own account","self transfer","ravinder"],
-  "Family Transfer": ["shriya gupta"],
-  "Cashback": ["cashback","cash back","reward point","reward redemption"],
-  "Settlement": ["dilip kumar"],
-  "Food & Dining": ["swiggy","zomato","restaurant","cafe","starbucks","dominos","mcdonald","kfc","pizza","eatery","dine"],
-  "Groceries": ["bigbasket","blinkit","blink commerce","zepto","dmart","grocery","supermarket","reliance fresh","instamart","innovative retail con"],
-  "Transport": ["uber","ola","rapido","petrol","fuel","metro","irctc","indigo","redbus","toll","parking"],
-  "Shopping": ["amazon","flipkart","myntra","ajio","nykaa","shopping","lenskart","home furnishing"],
-  "Bills & Utilities": ["electricity","water bill","broadband","airtel","jio recharge","jio prepaid","jio postpaid","jio fiber","reliance jio","vodafone","wifi","gas bill","utility","dth"],
-  "Rent": ["rent","landlord","housing.com","nobroker"],
-  "Entertainment": ["netflix","prime video","hotstar","spotify","bookmyshow","pvr","inox","youtube premium"],
-  "Health & Fitness": ["pharmacy","hospital","clinic","cult.fit","crossfit","apollo","gym","medplus","diagnostic","spa","1mg"],
-  "Subscriptions": ["subscription","icloud","google one","google play","chatgpt","github","openai","notion","adobe","apple","linkedin"],
-  "Travel": ["makemytrip","goibibo","hotel","airbnb","booking.com","agoda","flight","indigo air","vistara","priority pass","lounge"],
-  "Transfers": ["neft","imps","transfer","rtgs"],
-  "Insurance": ["insurance","pz insurance","hdfc ergo","lic premium"],
-  "Loan / EMI": ["ach d-","loan emi"],
-  "Bank Charges": ["cgst","sgst","gst","bank charges","joining fee"]
-};
+// Fetched from the server (backed by category_rules.json, which is
+// git-ignored and personal to each user) rather than hardcoded here, since
+// this file — unlike category_rules.json — is tracked in git. Only used as
+// a client-side fallback (see guessCategory() below) when a loaded CSV row
+// has no category of its own; the real categorization happens server-side
+// at ingestion. Populated by loadRules() before first use.
+let RULES = {};
+
+async function loadRules(){
+  try{
+    const res = await fetch('/rules?_=' + Date.now(), {cache:'no-store'});
+    RULES = await res.json();
+  }catch(e){
+    console.error(e);
+  }
+}
 
 let state = { month: currentMonthKey(), transactions: [], allTransactions: [], pending: [] };
 let catChartInstance = null, trendChartInstance = null, categoryHistoryChartInstance = null, categoryAccountChartInstance = null;
@@ -418,6 +410,7 @@ function parseAmountVal(v){
 }
 async function loadFromServer(){
   try{
+    await loadRules();
     const res = await fetch('transactions.csv?_=' + Date.now(), {cache:'no-store'});
     if(!res.ok) throw new Error('HTTP ' + res.status);
     const text = await res.text();

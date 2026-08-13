@@ -1,7 +1,7 @@
-"""Generic OCR fallback for PDFs with no text layer at all (seen: 
- statements, which render every line as a raster image instead of
-real text — pdfplumber's normal page.extract_text() gets nothing from
-these). Knows nothing about banks, passwords, or decryption — server.py
+"""Generic OCR fallback for PDFs with no text layer at all — some banks
+render every statement line as a raster image instead of real text, so
+pdfplumber's normal page.extract_text() gets nothing from these. Knows
+nothing about banks, passwords, or decryption — server.py
 owns that; this module just turns an already-open pdfplumber page into
 word-level bounding-box data, and provides the row/column reconstruction
 helpers needed to read it as a table.
