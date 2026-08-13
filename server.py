@@ -665,7 +665,7 @@ def _hsbc_parse_ocr_date(raw, prev_date):
 
 
 def parse_hsbc_savings_ocr_pages(ocr_pages):
-    """HSBC Premier savings statements have no text layer (see
+    """HSBC savings statements have no text layer (see
     pdf_ocr.ocr_pdf_words()), so this reads OCR word positions instead of
     lines of text. Column identity comes from x-position against that
     page's own header row (found by locating the one row where Date/
@@ -789,7 +789,7 @@ def read_pdf_rows(data, password):
     full_text_lower = "\n".join(lines).lower()
 
     if not full_text_lower.strip():
-        # No text layer at all (seen: HSBC Premier statements render every
+        # No text layer at all (seen: HSBC statements render every
         # line as a raster image) — fall back to OCR before giving up. Only
         # attempted when normal extraction found nothing, since OCR is much
         # slower than text extraction.

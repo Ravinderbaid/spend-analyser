@@ -66,13 +66,13 @@ rule below for why), in this order in `read_pdf_rows()`:
 `(cid:9)`-tab-glyph stripping shared by all of the above; `read_pdf_rows()`
 just adds the dispatch on top.
 
-**OCR fallback (HSBC Premier).** Only triggered when `extract_pdf_lines()`
+**OCR fallback** Only triggered when `extract_pdf_lines()`
 returns no text at all — some banks (seen: HSBC) render every statement
 line as a raster image with zero real text layer, which no amount of
 keyword tuning can fix. In that case `read_pdf_rows()` calls
 `pdf_ocr.ocr_pdf_words()` (600dpi render + Tesseract word-bounding-boxes —
 300dpi was measured to silently drop small amounts) and, if the OCR'd text
-contains both `"hsbc premier"` and `"savings account-res"`, routes to
+contains both `"HSBC"` and `"savings account-res"`, routes to
 `parse_hsbc_savings_ocr_pages()`. That parser doesn't trust Tesseract's own
 reading order (observed reading an entire Deposits column before moving to
 Withdrawals, scrambling row alignment) — it clusters words into visual rows

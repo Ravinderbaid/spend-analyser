@@ -1,5 +1,5 @@
-"""Generic OCR fallback for PDFs with no text layer at all (seen: HSBC
-Premier statements, which render every line as a raster image instead of
+"""Generic OCR fallback for PDFs with no text layer at all (seen: 
+ statements, which render every line as a raster image instead of
 real text — pdfplumber's normal page.extract_text() gets nothing from
 these). Knows nothing about banks, passwords, or decryption — server.py
 owns that; this module just turns an already-open pdfplumber page into
