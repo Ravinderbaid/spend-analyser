@@ -124,6 +124,11 @@ Only worth doing if your bank emails you a statement each month/cycle.
 - PDF parsing only understands the bank/card layouts it's already seen —
   anything new needs the Statement Formats tab's "copy for Claude" flow.
   CSV/Excel upload works for any file regardless of bank.
+- A few statements have no real text layer at
+  all — every line is a raster image — so they need OCR instead. That
+  needs one extra one-time install: `brew install tesseract` (macOS).
+  Without it, those PDFs are just treated as an unrecognized format like
+  any other.
 - The email fetcher only looks back `search_window_days` (default 1) days —
   if your computer is asleep across a multi-day gap at fetch time, an email
   could be missed. Use "Check email now" if you suspect that happened.

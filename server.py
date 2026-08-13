@@ -40,6 +40,8 @@ except ImportError:
     pdfplumber = None
     pikepdf = None
 
+import pdf_ocr
+
 PORT = 8765
 DIRECTORY = os.path.dirname(os.path.abspath(__file__))
 CSV_PATH = os.path.join(DIRECTORY, "transactions.csv")
@@ -602,14 +604,9 @@ def parse_icici_card_statement_lines(lines):
     return rows
 
 
-def extract_pdf_lines(data, password):
-    """Decrypt + extract raw text lines from a PDF, with no format-specific
-    parsing — used both as the first step of read_pdf_rows() and standalone
-    by the format-check diagnostic route, so an unrecognized layout can be
-    inspected without duplicating the pikepdf/pdfplumber/cid-stripping
-    logic."""
-    if pdfplumber is None or pikepdf is None:
-        raise RuntimeError("pdfplumber/pikepdf not installed — run: source .venv/bin/activate && pip install pdfplumber pikepdf")
+def _decrypt_pdf(data, password):
+    """Shared pikepdf-decrypt step for both text extraction and OCR page
+    rendering."""
     try:
         pdf = pikepdf.open(io.BytesIO(data), password=password or "")
     except pikepdf.PasswordError:
@@ -619,6 +616,18 @@ def extract_pdf_lines(data, password):
     buf = io.BytesIO()
     pdf.save(buf)
     buf.seek(0)
+    return buf
+
+
+def extract_pdf_lines(data, password):
+    """Decrypt + extract raw text lines from a PDF, with no format-specific
+    parsing — used both as the first step of read_pdf_rows() and standalone
+    by the format-check diagnostic route, so an unrecognized layout can be
+    inspected without duplicating the pikepdf/pdfplumber/cid-stripping
+    logic."""
+    if pdfplumber is None or pikepdf is None:
+        raise RuntimeError("pdfplumber/pikepdf not installed — run: source .venv/bin/activate && pip install pdfplumber pikepdf")
+    buf = _decrypt_pdf(data, password)
 
     lines = []
     with pdfplumber.open(buf) as doc:
@@ -633,6 +642,134 @@ def extract_pdf_lines(data, password):
             text = text.replace("(cid:9)", " ")
             lines.extend(text.split("\n"))
     return lines
+
+
+def _hsbc_parse_ocr_date(raw, prev_date):
+    """HSBC transaction dates are DDMonYYYY (e.g. "21Jul2026"). Tesseract
+    was observed misreading a "7" as "/" (in both a date and an amount, on
+    the same real statement), so retry once with that substitution — but
+    only accept the result if it's on or after the previous transaction's
+    date, since statements list transactions in date order; a date that
+    goes backwards means the recovery guessed wrong and should fail loudly
+    rather than silently misfile the transaction."""
+    raw = raw.replace(" ", "")
+    candidates = [raw] + ([raw.replace("/", "7")] if "/" in raw else [])
+    for cand in candidates:
+        try:
+            d = datetime.strptime(cand, "%d%b%Y").date()
+        except ValueError:
+            continue
+        if prev_date is None or d >= prev_date:
+            return d
+    raise ValueError(f"HSBC OCR: unreadable transaction date {raw!r}")
+
+
+def parse_hsbc_savings_ocr_pages(ocr_pages):
+    """HSBC savings statements have no text layer (see
+    pdf_ocr.ocr_pdf_words()), so this reads OCR word positions instead of
+    lines of text. Column identity comes from x-position against that
+    page's own header row (found by locating the one row where Date/
+    Transaction/Deposits/Withdrawals/Balance all land at the same
+    y-position — the page's "Summary of Your Portfolio" section has
+    similarly-named columns too, so the first occurrence of each label
+    isn't enough). The running balance is recomputed from scratch on every
+    row rather than trusted from the OCR'd Balance cell, so a single
+    misread digit in the Deposits/Withdrawals cell — e.g. "703,/28.00" —
+    can be recovered via balance-diff instead of silently producing a wrong
+    amount; a balance-diff is only trusted when it's within a rupee of the
+    column-read amount, guarding against the *balance* cell being the
+    corrupted one instead. A row where OCR failed to produce a usable
+    number in either place raises rather than silently dropping or
+    guessing at a financial figure."""
+    rows_out = []
+    narration_buf = []
+    current_date = None
+    current_date_obj = None
+    prev_balance = None
+    stopped = False
+
+    for words in ocr_pages:
+        if stopped or not words:
+            continue
+        needed = {"date", "transaction", "deposits", "withdrawals", "balance"}
+        header = None
+        header_y = None
+        for row in pdf_ocr.cluster_rows(words):
+            labels = {w["text"].lower().strip(":"): w["left"] for w in row["words"]
+                      if w["text"].lower().strip(":") in needed}
+            if needed <= labels.keys():
+                header = labels
+                header_y = row["y"]
+                break
+        if header is None:
+            continue  # a page with no transaction table (e.g. the cover page)
+
+        boundaries = [
+            (header["date"] + header["transaction"]) / 2,
+            (header["transaction"] + header["deposits"]) / 2,
+            (header["deposits"] + header["withdrawals"]) / 2,
+            (header["withdrawals"] + header["balance"]) / 2,
+        ]
+
+        for row in pdf_ocr.cluster_rows(words):
+            if row["y"] <= header_y + 1:
+                continue  # header row itself, or page furniture above the table
+            date_txt, details_txt, dep_txt, wd_txt, bal_txt = pdf_ocr.classify_row(row["words"], boundaries)
+            low = details_txt.lower()
+            if not (date_txt or details_txt or dep_txt or wd_txt or bal_txt):
+                continue
+            if "balance brought forward" in low or "balance carried forward" in low:
+                narration_buf = []
+                continue
+            if "opening balance" in low:
+                bal_val = pdf_ocr.parse_amount(bal_txt)
+                if bal_val is not None:
+                    prev_balance = bal_val
+                narration_buf = []
+                continue
+            if "closing balance" in low or "transaction turnover" in low or "transaction count" in low:
+                stopped = True
+                break
+            if date_txt:
+                current_date_obj = _hsbc_parse_ocr_date(date_txt, current_date_obj)
+                current_date = current_date_obj.isoformat()
+            if details_txt:
+                narration_buf.append(details_txt)
+
+            # Furniture rows below the header but outside real transaction
+            # rows (e.g. a standalone "(DR=Debit)" / "INR" sub-label) can
+            # land in a numeric column with no digits at all — only rows
+            # with an actual digit in a numeric column are candidate
+            # transaction lines.
+            if not any(c.isdigit() for c in dep_txt + wd_txt + bal_txt):
+                continue
+
+            dep_val = pdf_ocr.parse_amount(dep_txt)
+            wd_val = pdf_ocr.parse_amount(wd_txt)
+            bal_val = pdf_ocr.parse_amount(bal_txt)
+
+            column_amount = dep_val if dep_val is not None else (-wd_val if wd_val is not None else None)
+
+            signed = None
+            if bal_val is not None and prev_balance is not None:
+                diff = round(bal_val - prev_balance, 2)
+                if column_amount is None or abs(diff - column_amount) < 1.0:
+                    signed = diff
+            if signed is None:
+                signed = column_amount
+            if signed is None:
+                raise ValueError(
+                    f"HSBC OCR: unreadable amount near {current_date} "
+                    f"{' '.join(narration_buf)[:60]!r} — both the deposit/"
+                    f"withdrawal and balance columns failed to OCR on this row."
+                )
+
+            desc = " ".join(narration_buf).strip()
+            rows_out.append([current_date, desc, f"{signed:.2f}"])
+            narration_buf = []
+            prev_balance = round(prev_balance + signed, 2) if prev_balance is not None else bal_val
+
+    return rows_out
 
 
 def read_pdf_rows(data, password):
@@ -650,6 +787,18 @@ def read_pdf_rows(data, password):
     # Instead, check for each format's actual column-header phrase, which
     # only appears in the real table header, not in unrelated prose.
     full_text_lower = "\n".join(lines).lower()
+
+    if not full_text_lower.strip():
+        # No text layer at all (seen: HSBC statements render every
+        # line as a raster image) — fall back to OCR before giving up. Only
+        # attempted when normal extraction found nothing, since OCR is much
+        # slower than text extraction.
+        with pdfplumber.open(_decrypt_pdf(data, password)) as doc:
+            ocr_pages = pdf_ocr.ocr_pdf_words(doc)
+        ocr_text_lower = " ".join(w["text"] for words in ocr_pages for w in words).lower()
+        if "hsbc premier" in ocr_text_lower and "savings account-res" in ocr_text_lower:
+            return [["date", "description", "amount"]] + parse_hsbc_savings_ocr_pages(ocr_pages)
+
     if "date mode particulars" in full_text_lower:
         return [["date", "description", "amount"]] + parse_icici_statement_lines(lines)
     if "date serno" in full_text_lower:
@@ -740,6 +889,11 @@ def serve_static(filename="spend_analyser.html"):
 @app.route("/accounts")
 def accounts():
     return jsonify(sorted({r["account"] for r in read_transactions() if r.get("account")}))
+
+
+@app.route("/rules")
+def rules():
+    return jsonify(load_rules())
 
 
 @app.route("/save", methods=["POST"])

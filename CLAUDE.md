@@ -28,11 +28,15 @@ implementation detail aimed at whoever's extending the code.
 
 ## Files
 
-`server.py` Flask backend + all parsers · `spend_analyser.html` dashboard UI
+`server.py` Flask backend + all parsers · `pdf_ocr.py` generic OCR
+mechanics (image rendering, word-position row/column reconstruction) used
+by the HSBC layout below — no bank-specific or password logic, just
+pdfplumber-page-to-Tesseract-words · `spend_analyser.html` dashboard UI
 (vanilla JS, Chart.js, PapaParse) · `transactions.csv` the ledger (`id, date,
 description, amount, account, category`; amount signed, negative=spend) ·
-`category_rules.json` / `RULES` in the HTML: keyword→category, kept in sync
-manually · `fetch_statements.py` standalone IMAP fetcher, never imported by
+`category_rules.json` keyword→category rules (git-ignored, personal —
+served to the browser via `/rules` rather than duplicated in the HTML) ·
+`fetch_statements.py` standalone IMAP fetcher, never imported by
 `server.py` · `mail_config.json` Gmail creds (git-ignored) ·
 `statement_subjects.json` email-subject→account-label map ·
 `incoming_statements/` staged attachments + `manifest.json` ·
@@ -63,6 +67,25 @@ rule below for why), in this order in `read_pdf_rows()`:
 `(cid:9)`-tab-glyph stripping shared by all of the above; `read_pdf_rows()`
 just adds the dispatch on top.
 
+**OCR fallback** Only triggered when `extract_pdf_lines()`
+returns no text at all — some banks (seen: HSBC) render every statement
+line as a raster image with zero real text layer, which no amount of
+keyword tuning can fix. In that case `read_pdf_rows()` calls
+`pdf_ocr.ocr_pdf_words()` (600dpi render + Tesseract word-bounding-boxes —
+300dpi was measured to silently drop small amounts) and, if the OCR'd text
+contains both `"HSBC"` and `"savings account-res"`, routes to
+`parse_hsbc_savings_ocr_pages()`. That parser doesn't trust Tesseract's own
+reading order (observed reading an entire Deposits column before moving to
+Withdrawals, scrambling row alignment) — it clusters words into visual rows
+by y-position and classifies each into Date/Details/Deposits/Withdrawals/
+Balance by x-position against that page's own header row, then recomputes
+the running balance from scratch rather than trusting the OCR'd Balance
+cell, so a single misread digit in an amount can self-heal via balance-diff
+instead of silently producing a wrong figure. Needs the `tesseract` binary
+(`brew install tesseract`) in addition to the `pytesseract` pip package —
+without it, `ocr_pdf_words()` returns `[]` and this layout is skipped like
+any other unrecognized format, rather than erroring.
+
 ## Rules for working in this repo
 
 - `transactions.csv` is the single source of truth ledger. Don't invent a
@@ -84,9 +107,10 @@ just adds the dispatch on top.
 - Before trusting any new or modified statement parser, reconcile its parsed
   total against the statement's own printed summary/total. Don't assume a
   parser is correct just because it produced rows.
-- `category_rules.json` and the `RULES` object embedded in
-  `spend_analyser.html` are two separate copies of the same keyword rules —
-  if one is edited, check whether the other needs the same change.
+- `category_rules.json` is the single source of truth for keyword→category
+  rules — the browser fetches it via `GET /rules` (see `loadRules()` in
+  `spend_analyser.html`) rather than keeping its own copy, since the file
+  is git-ignored (personal keywords) but `spend_analyser.html` isn't.
 - `EXCLUDE_KEYWORDS` in `server.py` intentionally drops self-repayment
   transactions (e.g. paying your own credit card from your own bank account)
   at ingestion — don't "fix" this by re-including them without understanding
