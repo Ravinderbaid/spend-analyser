@@ -18,6 +18,7 @@ import json
 import os
 import re
 import sys
+import time
 from datetime import datetime, timedelta
 
 DIRECTORY = os.path.dirname(os.path.abspath(__file__))
@@ -104,8 +105,25 @@ def get_uidvalidity(M):
     return None
 
 
-def connect(config):
-    M = imaplib.IMAP4_SSL(config["imap_host"], config["imap_port"])
+def connect(config, retries=3, retry_delay=30):
+    """This runs on a fixed launchd schedule right after the Mac wakes from
+    sleep, and WiFi/DNS isn't always back up yet at that exact moment —
+    observed in practice as 13 straight days of "[Errno 8] nodename nor
+    servname provided" at the scheduled time, while DNS resolved fine
+    moments later on manual checks. Only the initial socket connection is
+    retried; a login failure (wrong password) is a real error, not a
+    transient one, so it's left to fail immediately."""
+    last_err = None
+    for attempt in range(retries):
+        try:
+            M = imaplib.IMAP4_SSL(config["imap_host"], config["imap_port"])
+            break
+        except OSError as e:
+            last_err = e
+            if attempt < retries - 1:
+                time.sleep(retry_delay)
+    else:
+        raise last_err
     M.login(config["email"], config["app_password"])
     M.select(config["mailbox"], readonly=True)
     return M

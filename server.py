@@ -144,7 +144,7 @@ def parse_amount(v):
     return -n if neg else n
 
 
-DATE_FORMATS = ["%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%m/%d/%Y", "%d.%m.%Y", "%d/%m/%y", "%d-%m-%y"]
+DATE_FORMATS = ["%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%m/%d/%Y", "%d.%m.%Y", "%d/%m/%y", "%d-%m-%y", "%d%b%Y"]
 
 
 def parse_date(v):
@@ -604,6 +604,65 @@ def parse_icici_card_statement_lines(lines):
     return rows
 
 
+HSBC_CARD_DATE_LINE_RE = re.compile(r"^(\d{2})([A-Z]{3})\s+(.*)$")
+# Optional non-capturing prefix absorbs a foreign-currency amount ("THB
+# 3,000.00") when present, so group(1) always lands on the actual INR
+# amount — the only one that matters, since that's what the card was
+# actually billed. A trailing CR marks a payment/credit, same convention as
+# parse_icici_card_statement_lines() — untested on a real statement since
+# this card's first cycle had no payments yet, but it's the standard
+# Indian-card-statement convention and this parser reconciled exactly
+# against the printed total without it ever firing, so it's a safe default.
+HSBC_CARD_TRAILING_RE = re.compile(r"(?:[A-Z]{3}\s+[\d,]+\.\d{2}\s+)?([\d,]+\.\d{2})\s*(CR)?\s*$", re.IGNORECASE)
+HSBC_CARD_PERIOD_RE = re.compile(r"(\d{1,2})\s+([A-Z]{3})\s+(\d{4})\s+To\s+(\d{1,2})\s+([A-Z]{3})\s+(\d{4})", re.IGNORECASE)
+
+
+def parse_hsbc_card_statement_lines(lines):
+    """HSBC Premier credit card statements: single line per transaction,
+    `DDMON description [location] [foreign-ccy foreign-amount] inr-amount
+    [CR]` — no year on the transaction line itself, only on the statement
+    period header ("21 JUL 2026 To 20 AUG 2026"), so the year is looked up
+    per month from that period rather than assumed, handling a
+    December-to-January cycle correctly. "DDMON NET OUTSTANDING BALANCE
+    amount" is a closing-balance summary line, not a transaction, but its
+    date prefix would otherwise match like a real one — explicitly
+    excluded rather than relying on a generic stop-marker list, since nothing
+    else in this layout collides with the date pattern."""
+    full_text = "\n".join(lines)
+    period_m = HSBC_CARD_PERIOD_RE.search(full_text)
+    year_by_month = {}
+    if period_m:
+        _, m1, y1, _, m2, y2 = period_m.groups()
+        year_by_month[m1.upper()] = y1
+        year_by_month[m2.upper()] = y2
+
+    rows = []
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        m = HSBC_CARD_DATE_LINE_RE.match(line)
+        if not m:
+            continue
+        day, mon, rest = m.groups()
+        if mon.upper() not in year_by_month:
+            continue
+        if rest.strip().upper().startswith("NET OUTSTANDING BALANCE"):
+            continue
+        amt_m = HSBC_CARD_TRAILING_RE.search(rest)
+        if not amt_m:
+            continue
+        desc = rest[:amt_m.start()].strip()
+        if not desc:
+            continue
+        amount_str, cr = amt_m.groups()
+        numeric = amount_str.replace(",", "")
+        signed = numeric if cr else "-" + numeric
+        date_str = f"{day}{mon}{year_by_month[mon.upper()]}"
+        rows.append([date_str, desc, signed])
+    return rows
+
+
 def _decrypt_pdf(data, password):
     """Shared pikepdf-decrypt step for both text extraction and OCR page
     rendering."""
@@ -809,6 +868,8 @@ def read_pdf_rows(data, password):
         return [["date", "narration", "withdrawals", "deposits"]] + parse_bank_statement_lines(lines)
     if "merchant category" in full_text_lower:
         return [["date", "description", "amount"]] + parse_axis_statement_lines(lines)
+    if "hsbc premier" in full_text_lower and "available credit limit" in full_text_lower:
+        return [["date", "description", "amount"]] + parse_hsbc_card_statement_lines(lines)
 
     return [["date", "description", "amount"]] + parse_statement_lines(lines)
 

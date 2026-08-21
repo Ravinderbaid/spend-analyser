@@ -60,7 +60,15 @@ rule below for why), in this order in `read_pdf_rows()`:
    (withdrawal/deposit/balance) (`parse_bank_statement_lines`).
 5. `"merchant category"` → Axis-style card (Magnus/Horizon) — trailing
    `Dr`/`Cr` suffix (`parse_axis_statement_lines`).
-6. Else → generic fallback, single amount column, leading `+`/blank sign
+6. `"hsbc premier"` + `"available credit limit"` → HSBC Premier credit card
+   — single line/txn, `DDMON` date with no year on the line itself (looked
+   up per-month from the statement's own period header, so a Dec→Jan cycle
+   resolves correctly), an optional foreign-currency amount before the real
+   INR amount, trailing `CR` = credit (untested — this card's first cycle
+   had no payments yet) (`parse_hsbc_card_statement_lines`). Distinct from
+   the HSBC *savings* layout below — this one has a real text layer, so the
+   two never compete for the same file.
+7. Else → generic fallback, single amount column, leading `+`/blank sign
    (`parse_statement_lines`).
 
 `extract_pdf_lines()` does the raw pikepdf-decrypt + pdfplumber-extract +

@@ -637,6 +637,9 @@ async function fetchPendingPreview(item, password){
 
 function renderPendingPreview(el, txs){
   const rows = txs.slice().sort((a,b)=> a.date < b.date ? 1 : -1);
+  const net = txs.reduce((a,t)=>a+t.amount, 0);
+  const deposits = txs.filter(t=>t.amount>0).reduce((a,t)=>a+t.amount, 0);
+  const withdrawals = txs.filter(t=>t.amount<0).reduce((a,t)=>a+t.amount, 0);
   el.innerHTML = `
     <div style="max-height:260px; overflow-y:auto; border:1px solid var(--rule); border-radius:var(--radius);">
       <table>
@@ -649,6 +652,12 @@ function renderPendingPreview(el, txs){
             <td class="amt ${t.amount<0?'neg':'pos'}">${fmt(t.amount)}</td>
           </tr>`).join('')}
         </tbody>
+        <tfoot>
+          <tr>
+            <td colspan="3" style="font-size:11px; color:var(--ink-soft);">Total — ${deposits>0?fmt(deposits)+' deposits, ':''}${withdrawals<0?fmt(withdrawals)+' withdrawals':''}</td>
+            <td class="amt ${net<0?'neg':'pos'}" style="font-weight:600;">${fmt(net)}</td>
+          </tr>
+        </tfoot>
       </table>
     </div>`;
   el.style.display = 'block';
