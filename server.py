@@ -509,6 +509,93 @@ def parse_axis_savings_statement_lines(lines):
     return rows
 
 
+HDFC_SAVINGS_DATE_LINE_RE = re.compile(r"^(\d{2}/\d{2}/\d{2})\s+(.*)$")
+HDFC_SAVINGS_TRAILING_TWO_RE = re.compile(r"([\d,]+\.\d{2})\s+([\d,]+\.\d{2})\s*$")
+# Strips the "Chq./Ref.No. ValueDt" pair that sits between the narration and
+# the amount, i.e. a line of the shape
+#   "<narration> <ref-no> <DD/MM/YY> <amount> <closing-balance>".
+# The ref number is optional (a few rows carry only a value date).
+HDFC_SAVINGS_REF_VALUEDT_RE = re.compile(r"(\s+\S+)?\s+\d{2}/\d{2}/\d{2}\s*$")
+HDFC_SAVINGS_OPENING_BAL_RE = re.compile(r"^\s*([\d,]+\.\d{2})")
+
+
+def _hdfc_savings_opening_balance(lines):
+    """The HDFC statement prints its summary (opening balance, Dr/Cr counts,
+    totals, closing balance) at the very END of the document, not before the
+    rows. Pre-scan for it, because the first transaction's direction can only
+    be inferred by comparing its closing balance against the opening one."""
+    for i, line in enumerate(lines):
+        if line.lower().replace(" ", "").startswith("openingbalancedrcount"):
+            for nxt in lines[i + 1:i + 3]:
+                m = HDFC_SAVINGS_OPENING_BAL_RE.match(nxt)
+                if m:
+                    return float(m.group(1).replace(",", ""))
+    return None
+
+
+def parse_hdfc_savings_statement_lines(lines):
+    """HDFC Bank savings account statements. Same underlying problem as the
+    Axis savings layout — the Withdrawal/Deposit column pair collapses to a
+    single amount on text extraction (whichever side doesn't apply is blank,
+    not 0.00), leaving two trailing numbers (amount, closing balance) with no
+    readable direction — so debit vs credit is inferred from which way the
+    running balance moved.
+
+    Two wrinkles the Axis parser doesn't have: the narration wraps across
+    PAGE BREAKS (a transaction on the last line of a page continues after the
+    next page's repeated address/header block), so the page furniture is
+    skipped WITHOUT resetting the transaction being accumulated; and the
+    opening balance needed to seed the first row's direction is printed in a
+    summary at the end of the document rather than at the top."""
+    rows = []
+    current = None  # index into rows of the transaction being accumulated
+    skipping = False  # inside a repeated page header/footer block
+    prev_balance = _hdfc_savings_opening_balance(lines)
+    if prev_balance is None:
+        prev_balance = 0.0
+
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        low = line.lower().replace(" ", "")
+        # The closing summary block is the end of the transactions.
+        if low.startswith("statementsummary"):
+            break
+        # Page furniture: the address/account block that follows "PageNo.:N"
+        # and runs until the "From : … Statement of account" line, and the
+        # disclaimer footer that starts at "HDFC BANK LIMITED". Neither
+        # resets `current` — a wrapped narration continues past them.
+        if low.startswith("pageno.") or low.startswith("hdfcbanklimited"):
+            skipping = True
+            continue
+        if "statementofaccount" in low:
+            skipping = False
+            continue
+        if skipping or low.startswith("datenarration"):
+            continue
+        m = HDFC_SAVINGS_DATE_LINE_RE.match(line)
+        if m:
+            current = None
+            rest = m.group(2)
+            nums_m = HDFC_SAVINGS_TRAILING_TWO_RE.search(rest)
+            if not nums_m:
+                continue
+            desc = HDFC_SAVINGS_REF_VALUEDT_RE.sub("", rest[:nums_m.start()].strip()).strip()
+            amount = float(nums_m.group(1).replace(",", ""))
+            new_balance = float(nums_m.group(2).replace(",", ""))
+            diff = round(new_balance - prev_balance, 2)
+            signed = amount if abs(diff - amount) < 0.01 else -amount
+            prev_balance = new_balance
+            rows.append([m.group(1), desc, f"{signed:.2f}"])
+            current = len(rows) - 1
+            continue
+        if current is not None:
+            rows[current][1] = (rows[current][1] + " " + line).strip()
+
+    return rows
+
+
 ICICI_DATE_LINE_RE = re.compile(r"^(\d{2}-\d{2}-\d{4})(.*)$")
 ICICI_TRAILING_TWO_RE = re.compile(r"([\d,]+\.\d{2})\s+([\d,]+\.\d{2})\s*$")
 ICICI_BF_RE = re.compile(r"^\d{2}-\d{2}-\d{4}\s+B/F\s+([\d,]+\.\d{2})\s*$")
@@ -617,6 +704,85 @@ def parse_icici_card_statement_lines(lines):
         numeric = amount_str.replace(",", "")
         signed = numeric if cr else "-" + numeric
         rows.append([date_str, desc, signed])
+    return rows
+
+
+HDFC_CARD_DATE_LINE_RE = re.compile(r"^(\d{2}/\d{2}/\d{4})\s*\|\s*\d{2}:\d{2}\s*(.*)$")
+# The rupee symbol extracts as a bare "C" in this statement's font, so the
+# amount is matched as "[optional +] [optional currency glyph] <number>" at
+# end of line, with the trailing "l" of the Purchase-Indicator column allowed
+# after it. A "+" IMMEDIATELY before the glyph marks a credit (payment
+# received); the "+ 20" reward-points column that can also precede the amount
+# is separated from it by the points value, so it never matches group(1).
+HDFC_CARD_TRAILING_AMOUNT_RE = re.compile(r"(\+\s*)?[^\d\s,]?\s*([\d,]+\.\d{2})\s*l?\s*$")
+# Trailing reward points ("+ 20") and any foreign-currency amount ("USD
+# 23.60") left over on the description side once the INR amount is removed.
+HDFC_CARD_TRAILING_POINTS_RE = re.compile(r"\s*\+\s*\d+\s*$")
+
+# These all sit AFTER the last transaction. Deliberately excludes "important
+# information", which also appears in the header boilerplate above the first
+# transaction and would stop parsing before it ever started.
+HDFC_CARD_STOP_PARSING_MARKERS = [
+    "transactions total amount", "rewards program points summary",
+    "smart emi loan summary", "gst summary",
+]
+
+HDFC_CARD_SKIP_MARKERS = [
+    "page ", "credit card statement", "hdfc bank credit cards gstin",
+    "domestic transactions", "international transactions",
+    "date & time transaction description", "offers on your card",
+    "ckyc id", "transaction time captured",
+]
+
+
+def parse_hdfc_card_statement_lines(lines):
+    """HDFC Bank credit card statements (e.g. Regalia Gold): one transaction
+    per "DD/MM/YYYY| HH:MM" line, with the rupee symbol extracting as a bare
+    "C". Unlike the other card layouts there's no Dr/Cr suffix — a credit
+    (payment received) is marked by a "+" immediately before the amount.
+    That's distinct from the reward-points column, which also renders as
+    "+ NN" but sits further left, before the currency glyph.
+
+    Fee/GST rows wrap their description both BEFORE and AFTER the date line
+    (the "(Ref# …)" number lands on the following line), so as in
+    parse_icici_statement_lines() the buffered non-date lines are attributed
+    to the transaction whose date line follows them. A little of the previous
+    row's trailing reference text can therefore prefix the next row's
+    description; the amounts (reconciled against the statement's own
+    PURCHASES/DEBIT and PAYMENTS/CREDITS totals) are unaffected."""
+    rows = []
+    buf = []
+
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        low = line.lower()
+        if any(marker in low for marker in HDFC_CARD_STOP_PARSING_MARKERS):
+            break
+        if any(marker in low for marker in HDFC_CARD_SKIP_MARKERS):
+            buf = []
+            continue
+        m = HDFC_CARD_DATE_LINE_RE.match(line)
+        if not m:
+            buf.append(line)
+            continue
+        rest = m.group(2)
+        amount_m = HDFC_CARD_TRAILING_AMOUNT_RE.search(rest)
+        if not amount_m:
+            buf.append(line)
+            continue
+        inline = rest[:amount_m.start()].strip()
+        inline = HDFC_CARD_TRAILING_POINTS_RE.sub("", inline).strip()
+        desc = " ".join(buf + ([inline] if inline else [])).strip()
+        if not desc:
+            buf = []
+            continue
+        numeric = amount_m.group(2).replace(",", "")
+        signed = numeric if amount_m.group(1) else "-" + numeric
+        rows.append([m.group(1), desc, signed])
+        buf = []
+
     return rows
 
 
@@ -882,6 +1048,10 @@ def read_pdf_rows(data, password):
         return [["date", "description", "amount"]] + parse_axis_savings_statement_lines(lines)
     if "narration withdrawals deposits" in full_text_lower:
         return [["date", "narration", "withdrawals", "deposits"]] + parse_bank_statement_lines(lines)
+    if "withdrawalamt. depositamt. closingbalance" in full_text_lower:
+        return [["date", "description", "amount"]] + parse_hdfc_savings_statement_lines(lines)
+    if "date & time transaction description rewards amount" in full_text_lower:
+        return [["date", "description", "amount"]] + parse_hdfc_card_statement_lines(lines)
     if "merchant category" in full_text_lower:
         return [["date", "description", "amount"]] + parse_axis_statement_lines(lines)
     if "hsbc premier" in full_text_lower and "available credit limit" in full_text_lower:

@@ -59,9 +59,31 @@ rule below for why), in this order in `read_pdf_rows()`:
    inferred from balance movement (`parse_axis_savings_statement_lines`).
 4. `"narration withdrawals deposits"` → bank-statement 3-column layout
    (withdrawal/deposit/balance) (`parse_bank_statement_lines`).
-5. `"merchant category"` → Axis-style card (Magnus/Horizon) — trailing
-   `Dr`/`Cr` suffix (`parse_axis_statement_lines`).
-6. `"hsbc premier"` + `"available credit limit"` → HSBC Premier credit card
+5. `"withdrawalamt. depositamt. closingbalance"` → HDFC savings — like Axis
+   savings, 2 trailing numbers (amount + running balance) with direction
+   inferred from balance movement, plus a `Chq./Ref.No. ValueDt` pair to
+   strip off the narration. Two quirks: the narration wraps *across page
+   breaks*, so the repeated per-page address block is skipped without
+   resetting the transaction being accumulated; and the opening balance that
+   seeds the first row's direction is printed in the summary at the *end* of
+   the document, so it's pre-scanned
+   (`parse_hdfc_savings_statement_lines`). Reconciled against the
+   statement's own `STATEMENT SUMMARY` (debits, credits, both counts, closing
+   balance all matched exactly).
+6. `"date & time transaction description rewards amount"` → HDFC credit card
+   (e.g. Regalia Gold) — one line/txn, `DD/MM/YYYY| HH:MM` date, rupee symbol
+   extracts as a bare `C`. No `Dr`/`Cr` suffix: a credit is marked by a `+`
+   *immediately* before the amount, which is distinct from the reward-points
+   column that also renders as `+ NN` but sits further left, before the
+   currency glyph. Fee/GST rows wrap their description both before and after
+   the date line, handled with the same leading-buffer approach (and same
+   documented ref-text-leak tradeoff) as `parse_icici_statement_lines`
+   (`parse_hdfc_card_statement_lines`). Reconciled against the statement's
+   printed `PURCHASES/DEBIT` and `PAYMENTS/CREDITS RECEIVED` totals.
+   Note `"important information"` is deliberately NOT a stop-parsing marker
+   here — it also appears in the header boilerplate above the first
+   transaction and would stop parsing before it started.
+7. `"hsbc premier"` + `"available credit limit"` → HSBC Premier credit card
    — single line/txn, `DDMON` date with no year on the line itself (looked
    up per-month from the statement's own period header, so a Dec→Jan cycle
    resolves correctly), an optional foreign-currency amount before the real
@@ -69,7 +91,7 @@ rule below for why), in this order in `read_pdf_rows()`:
    had no payments yet) (`parse_hsbc_card_statement_lines`). Distinct from
    the HSBC *savings* layout below — this one has a real text layer, so the
    two never compete for the same file.
-7. Else → generic fallback, single amount column, leading `+`/blank sign
+8. Else → generic fallback, single amount column, leading `+`/blank sign
    (`parse_statement_lines`).
 
 `extract_pdf_lines()` does the raw pikepdf-decrypt + pdfplumber-extract +
