@@ -52,13 +52,13 @@ SUBJECTS_PATH = os.path.join(DIRECTORY, "statement_subjects.json")
 os.makedirs(INCOMING_DIR, exist_ok=True)
 
 CSV_FIELDS = ["id", "date", "description", "amount", "account", "category"]
-CATEGORIES = [
-    "Food & Dining", "Groceries", "Transport", "Shopping", "Bills & Utilities",
-    "Rent", "Entertainment", "Health & Fitness", "Subscriptions", "Travel",
-    "Insurance", "Loan / EMI", "Investments", "Dividend", "Bank Charges",
-    "Salary / Income", "Cashback", "Self Transfer", "Family Transfer",
-    "Credit Card Bill", "Settlement", "Transfers", "Others",
-]
+
+# The one category name that has to exist in code rather than purely as
+# category_rules.json data — guess_category() falls back to it when no
+# keyword rule matches anything, so there must always be somewhere for an
+# unrecognized transaction to land. Not user-deletable/renamable for that
+# reason (see rules_save()/rules_delete() below).
+OTHERS_CATEGORY = "Others"
 
 # Enforced so the account name alone always reveals whether it's a bank/savings
 # account or a credit card — the dashboard's account-type filter relies on this
@@ -87,6 +87,22 @@ EXCLUDE_KEYWORDS = ["bppy cc payment", "bbps payment received"]
 def load_rules():
     with open(RULES_PATH, encoding="utf-8") as f:
         return json.load(f)
+
+
+def save_rules(rules):
+    with open(RULES_PATH, "w", encoding="utf-8") as f:
+        json.dump(rules, f, indent=2)
+        f.write("\n")
+
+
+def get_categories(rules=None):
+    """Category names come from category_rules.json's keys, plus the
+    "Others" fallback (which by definition has no keyword rule of its own
+    — it's whatever nothing else matched) — not a separately maintained
+    list, so creating a category via the Categories tab is the only place
+    that needs touching."""
+    rules = rules if rules is not None else load_rules()
+    return list(rules.keys()) + [OTHERS_CATEGORY]
 
 
 def load_manifest():
@@ -119,7 +135,7 @@ def guess_category(desc, rules):
     for cat, keywords in rules.items():
         if any(kw in d for kw in keywords):
             return cat
-    return "Others"
+    return OTHERS_CATEGORY
 
 
 def parse_amount(v):
@@ -221,7 +237,7 @@ def rows_to_transactions(rows, account, rules):
         if any(kw in desc.lower() for kw in EXCLUDE_KEYWORDS):
             continue
         provided_cat = str(cell(idx["category"]) or "").strip() if idx["category"] >= 0 else ""
-        category = provided_cat if provided_cat in CATEGORIES else guess_category(desc, rules)
+        category = provided_cat if provided_cat in get_categories(rules) else guess_category(desc, rules)
         out.append({
             "id": uuid.uuid4().hex[:8],
             "date": date_val,
@@ -955,6 +971,45 @@ def accounts():
 @app.route("/rules")
 def rules():
     return jsonify(load_rules())
+
+
+@app.route("/rules/save", methods=["POST"])
+def rules_save():
+    """Creates a new category or updates an existing one's keywords — the
+    same action, since the category list is just this file's keys.
+    `original_category` (optional) is the name being edited, so a rename
+    can delete the old key rather than leaving a duplicate behind."""
+    body = request.get_json(silent=True) or {}
+    category = (body.get("category") or "").strip()
+    original = (body.get("original_category") or "").strip()
+    keywords = body.get("keywords") or []
+    if not category:
+        return jsonify({"error": "A category name is required."}), 400
+    if category == OTHERS_CATEGORY:
+        return jsonify({"error": f'"{OTHERS_CATEGORY}" is the built-in fallback category and can\'t be edited.'}), 400
+    keywords = sorted({str(k).strip().lower() for k in keywords if str(k).strip()})
+
+    rules_data = load_rules()
+    if original and original != category:
+        rules_data.pop(original, None)
+    rules_data[category] = keywords
+    save_rules(rules_data)
+    return jsonify(rules_data)
+
+
+@app.route("/rules/delete", methods=["POST"])
+def rules_delete():
+    body = request.get_json(silent=True) or {}
+    category = (body.get("category") or "").strip()
+    if not category:
+        return jsonify({"error": "No category provided."}), 400
+    if category == OTHERS_CATEGORY:
+        return jsonify({"error": f'"{OTHERS_CATEGORY}" is the built-in fallback category and can\'t be deleted.'}), 400
+
+    rules_data = load_rules()
+    rules_data.pop(category, None)
+    save_rules(rules_data)
+    return jsonify(rules_data)
 
 
 @app.route("/save", methods=["POST"])

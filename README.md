@@ -27,8 +27,10 @@ cp mail_config.example.json mail_config.json
 Open `category_rules.json` and add your own name under `"Self Transfer"` (so
 moving money between your own accounts gets recognized), and anyone else you
 regularly send/receive money from under `"Family Transfer"` or
-`"Settlement"`. You can skip `statement_subjects.json` and `mail_config.json`
-for now — they're only needed later for the optional email auto-fetch.
+`"Settlement"`. (You can also do this later from the app's **Categories**
+tab instead of editing the file by hand — same data either way.) You can
+skip `statement_subjects.json` and `mail_config.json` for now — they're only
+needed later for the optional email auto-fetch.
 
 **3. Start the server**
 
@@ -47,7 +49,7 @@ files will prompt for a password.
 That's it — the **Dashboard** tab now shows your transactions. `Ctrl+C` in
 the terminal stops the server; run step 3 again any time to bring it back.
 
-## The three tabs
+## The four tabs
 
 *(Screenshots below use made-up sample data, not a real ledger.)*
 
@@ -71,6 +73,14 @@ button to copy it into a Claude Code chat to get support added.
 
 ![Statement Formats tab](docs/screenshots/statement-formats.png)
 
+**Categories** — add, rename, or delete categories and their keyword
+matching rules (this is the same data as `category_rules.json`, just
+editable from the browser instead of hand-editing JSON). Each category also
+has a 🔍 button that scans your existing transactions for ones that would
+now match its keywords but are filed under something else, so you can
+backfill older transactions after adding a new keyword — nothing changes
+until you review the list and click apply.
+
 ## Categories
 
 Every category is one of three types:
@@ -81,11 +91,17 @@ Every category is one of three types:
   yourself or family isn't real spend or income. Edit `IGNORED_CATEGORIES`
   in `spend_analyser.html` to change which categories this applies to.
 - **Spend** — everything else (`Food & Dining`, `Groceries`, `Rent`, `Bills &
-  Utilities`, etc. — the full list is in `category_rules.json`).
+  Utilities`, etc. — the full list is whatever's in the Categories tab /
+  `category_rules.json`).
 
 A refund or reversal inside a spend category (e.g. a bounced autopay coming
 back as a credit) reduces that category's total instead of being ignored or
 counted as income.
+
+Adding a category only affects *new* transactions from then on — it never
+retroactively re-tags existing ones on its own. Use the Categories tab's 🔍
+button on a category to review and selectively backfill older transactions
+that would now match it.
 
 ## Optional: fetch statements from email automatically
 

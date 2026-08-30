@@ -196,6 +196,7 @@
     <button class="tab-btn active" id="tabBtnDashboard" onclick="switchTab('dashboard')">Dashboard</button>
     <button class="tab-btn" id="tabBtnPending" onclick="switchTab('pending')">Pending Statements<span class="badge" id="pendingBadge" style="display:none;">0</span></button>
     <button class="tab-btn" id="tabBtnFormats" onclick="switchTab('formats')">Statement Formats</button>
+    <button class="tab-btn" id="tabBtnCategories" onclick="switchTab('categories')">Categories</button>
   </div>
 
   <div id="dashboardTab">
@@ -361,23 +362,57 @@
     </div>
   </div>
 
+  <div id="categoriesTab" style="display:none;">
+    <div class="section-head">
+      <h2>Categories</h2>
+      <span class="eyebrow">category_rules.json — keyword → category</span>
+    </div>
+
+    <div class="panel" style="margin-bottom:28px;">
+      <div class="row">
+        <input type="text" id="categoryNameInput" placeholder="Category name" style="flex:1; min-width:160px;">
+        <input type="text" id="categoryKeywordsInput" placeholder="Keywords, comma-separated (optional)" style="flex:2; min-width:220px;">
+        <button class="btn small" id="categorySaveBtn" onclick="saveCategoryEntry()">Add category</button>
+        <button class="btn small ghost" id="categoryCancelBtn" style="display:none;" onclick="cancelCategoryEdit()">Cancel</button>
+      </div>
+      <div class="import-hint" id="categorySaveLog"></div>
+    </div>
+
+    <div class="panel" style="padding:0; overflow-x:auto;">
+      <table>
+        <thead><tr><th>Category</th><th>Keywords</th><th></th></tr></thead>
+        <tbody id="categoriesBody"></tbody>
+      </table>
+      <div class="empty-state" id="categoriesEmpty" style="display:none;">No categories yet.</div>
+    </div>
+
+    <div id="categoryMatchesPreview" style="display:none; margin-top:20px;"></div>
+  </div>
+
 </div>
 
 <script>
-const CATEGORIES = ["Food & Dining","Groceries","Transport","Shopping","Bills & Utilities","Rent","Entertainment","Health & Fitness","Subscriptions","Travel","Insurance","Loan / EMI","Investments","Dividend","Bank Charges","Salary / Income","Cashback","Self Transfer","Family Transfer","Credit Card Bill","Settlement","Transfers","Others"];
-
 // Fetched from the server (backed by category_rules.json, which is
 // git-ignored and personal to each user) rather than hardcoded here, since
-// this file — unlike category_rules.json — is tracked in git. Only used as
-// a client-side fallback (see guessCategory() below) when a loaded CSV row
-// has no category of its own; the real categorization happens server-side
-// at ingestion. Populated by loadRules() before first use.
+// this file — unlike category_rules.json — is tracked in git. RULES also
+// only used as a client-side fallback (see guessCategory() below) when a
+// loaded CSV row has no category of its own; the real categorization
+// happens server-side at ingestion. CATEGORIES is just RULES's keys plus
+// the "Others" fallback — the single source of truth is category_rules.json,
+// editable via the Categories tab, so there's no separate list to maintain.
+// Both populated by loadRules() before first use, and refreshed after any
+// Categories tab edit.
+const OTHERS_CATEGORY = 'Others'; // mirrors server.py's OTHERS_CATEGORY — the one category name not stored in category_rules.json
 let RULES = {};
+let CATEGORIES = [];
+let SPEND_CATEGORIES = [];
 
 async function loadRules(){
   try{
     const res = await fetch('/rules?_=' + Date.now(), {cache:'no-store'});
     RULES = await res.json();
+    CATEGORIES = Object.keys(RULES).concat([OTHERS_CATEGORY]);
+    SPEND_CATEGORIES = CATEGORIES.filter(c => !INCOME_CATEGORIES.includes(c) && !IGNORED_CATEGORIES.includes(c));
   }catch(e){
     console.error(e);
   }
@@ -539,9 +574,12 @@ function switchTab(name){
   document.getElementById('dashboardTab').style.display = name === 'dashboard' ? '' : 'none';
   document.getElementById('pendingTab').style.display = name === 'pending' ? '' : 'none';
   document.getElementById('formatsTab').style.display = name === 'formats' ? '' : 'none';
+  document.getElementById('categoriesTab').style.display = name === 'categories' ? '' : 'none';
   document.getElementById('tabBtnDashboard').classList.toggle('active', name === 'dashboard');
   document.getElementById('tabBtnPending').classList.toggle('active', name === 'pending');
   document.getElementById('tabBtnFormats').classList.toggle('active', name === 'formats');
+  document.getElementById('tabBtnCategories').classList.toggle('active', name === 'categories');
+  if(name === 'categories') renderCategoriesTab();
 }
 
 function formatReceived(iso){
@@ -907,6 +945,165 @@ async function deleteSubjectMapping(btn){
   }
 }
 
+function renderCategoriesTab(){
+  const body = document.getElementById('categoriesBody');
+  const empty = document.getElementById('categoriesEmpty');
+  const entries = Object.entries(RULES).sort((a,b)=> a[0].localeCompare(b[0]));
+  empty.style.display = entries.length ? 'none' : 'block';
+  body.innerHTML = entries.map(([cat, keywords]) => `
+    <tr>
+      <td><span class="tag">${escapeHtml(cat)}</span></td>
+      <td class="desc" title="${escapeHtml(keywords.join(', '))}">${escapeHtml(keywords.join(', ')) || '—'}</td>
+      <td>
+        <button class="del-btn" title="Find matching transactions already in the ledger" data-cat="${escapeHtml(cat)}" onclick="previewCategoryMatches(this)">🔍</button>
+        <button class="del-btn" title="Edit" data-cat="${escapeHtml(cat)}" onclick="editCategoryEntry(this)">✎</button>
+        <button class="del-btn" title="Delete" data-cat="${escapeHtml(cat)}" onclick="deleteCategoryEntry(this)">✕</button>
+      </td>
+    </tr>`).join('')
+    + `<tr><td><span class="tag">${OTHERS_CATEGORY}</span></td><td class="desc">built-in fallback — used when no other category's keywords match</td><td></td></tr>`;
+}
+
+let editingCategoryOriginal = null;
+
+function editCategoryEntry(btn){
+  const cat = btn.dataset.cat;
+  editingCategoryOriginal = cat;
+  document.getElementById('categoryNameInput').value = cat;
+  document.getElementById('categoryKeywordsInput').value = (RULES[cat] || []).join(', ');
+  document.getElementById('categorySaveBtn').textContent = 'Save changes';
+  document.getElementById('categoryCancelBtn').style.display = '';
+  document.getElementById('categoryNameInput').focus();
+}
+
+function cancelCategoryEdit(){
+  editingCategoryOriginal = null;
+  document.getElementById('categoryNameInput').value = '';
+  document.getElementById('categoryKeywordsInput').value = '';
+  document.getElementById('categorySaveBtn').textContent = 'Add category';
+  document.getElementById('categoryCancelBtn').style.display = 'none';
+}
+
+async function saveCategoryEntry(){
+  const nameEl = document.getElementById('categoryNameInput');
+  const kwEl = document.getElementById('categoryKeywordsInput');
+  const logEl = document.getElementById('categorySaveLog');
+  const category = nameEl.value.trim();
+  const keywords = kwEl.value.split(',').map(k=>k.trim()).filter(Boolean);
+  if(!category){
+    logEl.textContent = 'A category name is required.';
+    return;
+  }
+  try{
+    const res = await fetch('/rules/save', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({category, keywords, original_category: editingCategoryOriginal || ''}),
+    });
+    const data = await res.json();
+    if(data.error){ logEl.textContent = 'Error: ' + data.error; return; }
+    logEl.textContent = 'Saved "' + category + '".';
+    cancelCategoryEdit();
+    await loadRules();
+    renderCategoriesTab();
+    if(keywords.length) showCategoryMatches(category);
+  }catch(e){
+    console.error(e);
+    logEl.textContent = 'Save failed — is server.py running?';
+  }
+}
+
+async function deleteCategoryEntry(btn){
+  const cat = btn.dataset.cat;
+  if(!confirm('Delete category "' + cat + '"? Transactions already using it keep the name, but it stops being auto-assigned or offered as an option.')) return;
+  try{
+    const res = await fetch('/rules/delete', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({category: cat}),
+    });
+    const data = await res.json();
+    if(data.error){ alert('Error: ' + data.error); return; }
+    await loadRules();
+    renderCategoriesTab();
+  }catch(e){
+    console.error(e);
+    alert('Delete failed — is server.py running?');
+  }
+}
+
+function previewCategoryMatches(btn){
+  showCategoryMatches(btn.dataset.cat);
+}
+
+function showCategoryMatches(cat){
+  // Re-runs guessCategory() (not a raw keyword-substring check) so this
+  // respects the same first-match-wins rule precedence as real ingestion —
+  // a transaction that already resolves to an earlier category via one of
+  // its own keywords isn't offered here just because it also happens to
+  // contain this category's keyword incidentally.
+  const candidates = state.allTransactions.filter(t => t.category !== cat && guessCategory(t.description) === cat);
+  const el = document.getElementById('categoryMatchesPreview');
+  el.style.display = 'block';
+  if(!candidates.length){
+    el.innerHTML = `<div class="import-hint">No existing transactions match "${escapeHtml(cat)}"'s keywords with a different current category. <button class="btn small ghost" onclick="closeCategoryMatches()">Close</button></div>`;
+    return;
+  }
+  const rows = candidates.slice().sort((a,b)=> a.date < b.date ? 1 : -1);
+  el.innerHTML = `
+    <div class="section-head">
+      <h2>${escapeHtml(cat)} — ${rows.length} existing transaction(s) match</h2>
+      <span class="eyebrow">review, then apply</span>
+    </div>
+    <div class="panel" style="padding:0; overflow-x:auto;">
+      <table>
+        <thead><tr><th></th><th>Date</th><th>Description</th><th>Current category</th><th style="text-align:right;">Amount</th></tr></thead>
+        <tbody>
+          ${rows.map(t => `<tr>
+            <td><input type="checkbox" class="match-check" data-id="${t.id}" checked></td>
+            <td>${t.date}</td>
+            <td class="desc" title="${escapeHtml(t.description)}">${escapeHtml(t.description)}</td>
+            <td><span class="tag">${escapeHtml(t.category)}</span></td>
+            <td class="amt ${t.amount<0?'neg':'pos'}">${fmt(t.amount)}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+    <div class="row" style="margin-top:12px;">
+      <button class="btn small ghost" onclick="toggleAllMatches(true)">Select all</button>
+      <button class="btn small ghost" onclick="toggleAllMatches(false)">Select none</button>
+      <button class="btn small" data-cat="${escapeHtml(cat)}" onclick="applyCategoryMatches(this)">Apply to selected</button>
+      <button class="btn small ghost" onclick="closeCategoryMatches()">Close</button>
+    </div>
+    <div class="import-hint" id="categoryMatchesLog"></div>`;
+}
+
+function toggleAllMatches(checked){
+  document.querySelectorAll('#categoryMatchesPreview .match-check').forEach(cb => cb.checked = checked);
+}
+
+function closeCategoryMatches(){
+  const el = document.getElementById('categoryMatchesPreview');
+  el.style.display = 'none';
+  el.innerHTML = '';
+}
+
+async function applyCategoryMatches(btn){
+  const cat = btn.dataset.cat;
+  const ids = Array.from(document.querySelectorAll('#categoryMatchesPreview .match-check:checked')).map(cb=>cb.dataset.id);
+  if(!ids.length){
+    document.getElementById('categoryMatchesLog').textContent = 'Nothing selected.';
+    return;
+  }
+  ids.forEach(id => {
+    const tx = state.allTransactions.find(t=>t.id===id);
+    if(tx) tx.category = cat;
+  });
+  state.transactions = txsForMonth(state.month);
+  await persistChange();
+  renderTable(); renderSummary(); renderTrend(); renderBudget();
+  showCategoryMatches(cat);
+}
+
 function parseCsvText(text){
   if(!text.trim()) return [];
   const parsed = Papa.parse(text.trim(), {header:true, skipEmptyLines:true});
@@ -964,7 +1161,6 @@ const INCOME_CATEGORIES = ['Salary / Income', 'Dividend', 'Cashback'];
 // your own or family's accounts isn't real spend or income. Customize this
 // list to match your own accounting preference.
 const IGNORED_CATEGORIES = ['Self Transfer', 'Family Transfer'];
-const SPEND_CATEGORIES = CATEGORIES.filter(c => !INCOME_CATEGORIES.includes(c) && !IGNORED_CATEGORIES.includes(c));
 
 function getBudgets(){
   try{ return JSON.parse(localStorage.getItem(BUDGET_KEY) || '{}'); }catch(e){ return {}; }

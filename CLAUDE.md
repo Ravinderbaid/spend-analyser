@@ -2,8 +2,8 @@
 
 Personal spend-tracking tool: Flask backend (`server.py`) ingests bank/card
 statements (CSV/Excel/PDF) into a single CSV ledger (`transactions.csv`),
-`spend_analyser.html` is the 3-tab dashboard (Dashboard / Pending Statements /
-Statement Formats) that reads/writes it. A standalone `fetch_statements.py`
+`spend_analyser.html` is the 4-tab dashboard (Dashboard / Pending Statements /
+Statement Formats / Categories) that reads/writes it. A standalone `fetch_statements.py`
 script (no AI/Claude Code session involved) fetches statement attachments
 from Gmail via IMAP daily and stages them as "pending" for review.
 
@@ -35,7 +35,8 @@ pdfplumber-page-to-Tesseract-words · `spend_analyser.html` dashboard UI
 (vanilla JS, Chart.js, PapaParse) · `transactions.csv` the ledger (`id, date,
 description, amount, account, category`; amount signed, negative=spend) ·
 `category_rules.json` keyword→category rules (git-ignored, personal —
-served to the browser via `/rules` rather than duplicated in the HTML) ·
+served to the browser via `/rules` and editable through the Categories tab
+via `/rules/save` / `/rules/delete`, rather than duplicated in the HTML) ·
 `fetch_statements.py` standalone IMAP fetcher, never imported by
 `server.py` · `mail_config.json` Gmail creds (git-ignored) ·
 `statement_subjects.json` email-subject→account-label map ·
@@ -115,10 +116,29 @@ any other unrecognized format, rather than erroring.
 - Before trusting any new or modified statement parser, reconcile its parsed
   total against the statement's own printed summary/total. Don't assume a
   parser is correct just because it produced rows.
-- `category_rules.json` is the single source of truth for keyword→category
-  rules — the browser fetches it via `GET /rules` (see `loadRules()` in
-  `spend_analyser.html`) rather than keeping its own copy, since the file
-  is git-ignored (personal keywords) but `spend_analyser.html` isn't.
+- `category_rules.json` is the single source of truth for both
+  keyword→category rules AND the category list itself — there's no
+  separate hardcoded `CATEGORIES` list anywhere. `get_categories()` in
+  `server.py` and the client's `CATEGORIES` (built from `RULES` in
+  `loadRules()`) both just derive it as `list(rules.keys()) + ["Others"]`.
+  `"Others"` is the one category name that has to exist in code (the
+  fallback `guess_category()` returns when nothing matches) — named once as
+  `OTHERS_CATEGORY` server-side and mirrored client-side, not a literal
+  string repeated everywhere. The Categories tab is the intended way to
+  add/rename/delete categories; editing the JSON by hand still works too,
+  they're the same data.
+- The Categories tab's "find matches" (🔍) feature re-scans
+  `state.allTransactions` for rows where `guessCategory(desc)` — using the
+  *current* rules — now resolves to a category different from what's
+  stored, and offers them as an opt-in, checkbox-selectable list; nothing
+  is changed until "Apply to selected" is clicked. It deliberately reuses
+  full `guessCategory()` (not a raw per-category keyword scan) so a
+  transaction that already resolves to an earlier category via rule
+  precedence isn't offered just because it also happens to contain this
+  category's keyword. Adding a category never retroactively touches
+  existing transactions on its own — this view is the explicit,
+  reviewable way to backfill, not an automatic side effect of editing
+  `category_rules.json`.
 - `EXCLUDE_KEYWORDS` in `server.py` intentionally drops self-repayment
   transactions (e.g. paying your own credit card from your own bank account)
   at ingestion — don't "fix" this by re-including them without understanding
